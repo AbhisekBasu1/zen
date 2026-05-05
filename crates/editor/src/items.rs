@@ -55,6 +55,7 @@ use workspace::{
     item::{FollowEvent, ProjectItemKind},
     searchable::SearchOptions,
 };
+use zen_actions::preview::markdown::OpenPreview as OpenMarkdownPreview;
 
 pub const MAX_TAB_TITLE_LEN: usize = 24;
 
@@ -1025,14 +1026,52 @@ impl Item for Editor {
     fn tab_extra_context_menu_actions(
         &self,
         _window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> Vec<(SharedString, Box<dyn gpui::Action>)> {
-        Vec::new()
+        let buffer = self.buffer().read(cx).as_singleton();
+        let is_markdown = buffer.is_some_and(|buffer| {
+            let buffer = buffer.read(cx);
+            buffer
+                .language()
+                .is_some_and(|language| language.name().as_ref() == "Markdown")
+                || buffer
+                    .file()
+                    .is_some_and(|file| is_markdown_path(&file.full_path(cx)))
+        });
+
+        if is_markdown {
+            vec![(
+                "Open Markdown Preview".into(),
+                Box::new(OpenMarkdownPreview) as Box<dyn gpui::Action>,
+            )]
+        } else {
+            Vec::new()
+        }
     }
 
     fn preserve_preview(&self, cx: &App) -> bool {
         self.buffer.read(cx).preserve_preview(cx)
     }
+}
+
+fn is_markdown_path(path: &Path) -> bool {
+    if let Some(extension) = path.extension().and_then(|extension| extension.to_str())
+        && matches!(
+            extension.to_ascii_lowercase().as_str(),
+            "md" | "mdx" | "mdwn" | "mdc" | "markdown"
+        )
+    {
+        return true;
+    }
+
+    path.file_name()
+        .and_then(|file_name| file_name.to_str())
+        .is_some_and(|file_name| {
+            matches!(
+                file_name,
+                ".rules" | ".cursorrules" | ".windsurfrules" | ".clinerules"
+            )
+        })
 }
 
 impl SerializableItem for Editor {

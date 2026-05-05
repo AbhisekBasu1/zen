@@ -284,10 +284,15 @@ impl MarkdownPreviewView {
         let buffer = editor.read(cx).buffer().read(cx);
         if let Some(buffer) = buffer.as_singleton()
             && let Some(language) = buffer.read(cx).language()
+            && language.name() == "Markdown"
         {
-            return language.name() == "Markdown";
+            return true;
         }
-        false
+
+        editor
+            .read(cx)
+            .file_at(MultiBufferOffset(0), cx)
+            .is_some_and(|file| is_markdown_path(&file.full_path(cx)))
     }
 
     fn set_editor(&mut self, editor: Entity<Editor>, window: &mut Window, cx: &mut Context<Self>) {
@@ -722,6 +727,26 @@ impl MarkdownPreviewView {
             });
         }
     }
+}
+
+fn is_markdown_path(path: &Path) -> bool {
+    if let Some(extension) = path.extension().and_then(|extension| extension.to_str())
+        && matches!(
+            extension.to_ascii_lowercase().as_str(),
+            "md" | "mdx" | "mdwn" | "mdc" | "markdown"
+        )
+    {
+        return true;
+    }
+
+    path.file_name()
+        .and_then(|file_name| file_name.to_str())
+        .is_some_and(|file_name| {
+            matches!(
+                file_name,
+                ".rules" | ".cursorrules" | ".windsurfrules" | ".clinerules"
+            )
+        })
 }
 
 fn handle_url_click(

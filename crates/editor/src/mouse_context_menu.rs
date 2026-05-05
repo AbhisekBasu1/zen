@@ -8,7 +8,8 @@ use crate::{
 };
 use gpui::prelude::FluentBuilder;
 use gpui::{Context, DismissEvent, Entity, Focusable as _, Pixels, Point, Subscription, Window};
-use std::ops::Range;
+use std::{ops::Range, path::Path};
+use zen_actions::preview::markdown::OpenPreview as OpenMarkdownPreview;
 
 #[derive(Debug)]
 pub enum MenuPosition {
@@ -193,6 +194,19 @@ pub fn deploy_context_menu(
 
         let focus = window.focused(cx);
         let has_reveal_target = editor.target_file(cx).is_some();
+        let is_markdown = editor
+            .buffer()
+            .read(cx)
+            .as_singleton()
+            .is_some_and(|buffer| {
+                let buffer = buffer.read(cx);
+                buffer
+                    .language()
+                    .is_some_and(|language| language.name().as_ref() == "Markdown")
+                    || buffer
+                        .file()
+                        .is_some_and(|file| is_markdown_path(&file.full_path(cx)))
+            });
         let has_git_repo =
             buffer
                 .anchor_to_buffer_anchor(anchor)
@@ -241,6 +255,9 @@ pub fn deploy_context_menu(
                     ui::utils::reveal_in_file_manager_label(false),
                     Box::new(RevealInFileManager),
                 )
+                .when(is_markdown, |builder| {
+                    builder.action("Open Markdown Preview", Box::new(OpenMarkdownPreview))
+                })
                 .action_disabled_when(
                     !has_git_repo,
                     "Copy Permalink",
@@ -336,4 +353,24 @@ mod tests {
         "});
         cx.editor(|editor, _window, _app| assert!(editor.mouse_context_menu.is_some()));
     }
+}
+
+fn is_markdown_path(path: &Path) -> bool {
+    if let Some(extension) = path.extension().and_then(|extension| extension.to_str())
+        && matches!(
+            extension.to_ascii_lowercase().as_str(),
+            "md" | "mdx" | "mdwn" | "mdc" | "markdown"
+        )
+    {
+        return true;
+    }
+
+    path.file_name()
+        .and_then(|file_name| file_name.to_str())
+        .is_some_and(|file_name| {
+            matches!(
+                file_name,
+                ".rules" | ".cursorrules" | ".windsurfrules" | ".clinerules"
+            )
+        })
 }
