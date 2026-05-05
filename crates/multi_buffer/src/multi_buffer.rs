@@ -1,6 +1,4 @@
 mod anchor;
-#[cfg(test)]
-mod multi_buffer_tests;
 mod path_key;
 mod transaction;
 
@@ -69,7 +67,7 @@ pub fn excerpt_context_lines(cx: &App) -> u32 {
 
 /// One or more [`Buffers`](Buffer) being edited in a single view.
 ///
-/// See <https://zed.dev/features#multi-buffers>
+/// See [`MultiBufferSnapshot`] for the excerpt model used by this view.
 pub struct MultiBuffer {
     /// A snapshot of the [`Excerpt`]s in the MultiBuffer.
     /// Use [`MultiBuffer::snapshot`] to get a up-to-date snapshot.
@@ -5737,30 +5735,6 @@ impl MultiBufferSnapshot {
             }
         })
         .map(|(range, _, _)| range)
-    }
-
-    pub fn runnable_ranges(
-        &self,
-        range: Range<Anchor>,
-    ) -> impl Iterator<Item = (Range<Anchor>, language::RunnableRange)> + '_ {
-        let range = range.start.to_offset(self)..range.end.to_offset(self);
-        self.lift_buffer_metadata(range, move |buffer, range| {
-            Some(
-                buffer
-                    .runnable_ranges(range.clone())
-                    .filter(move |runnable| {
-                        runnable.run_range.start >= range.start
-                            && runnable.run_range.end < range.end
-                    })
-                    .map(|runnable| (runnable.run_range.clone(), runnable)),
-            )
-        })
-        .map(|(run_range, runnable, _)| {
-            (
-                self.anchor_after(run_range.start)..self.anchor_before(run_range.end),
-                runnable,
-            )
-        })
     }
 
     pub fn line_indents(

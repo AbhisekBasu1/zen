@@ -19,6 +19,3 @@ collections.workspace = true
 chrono.workspace = true
 log.workspace = true
 anyhow.workspace = true
-
-[dev-dependencies]
-tempfile.workspace = true

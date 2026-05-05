@@ -33,7 +33,7 @@
     "Rust": {
       "tasks": {
         "variables": {
-          "RUST_DEFAULT_PACKAGE_RUN": "zed",
+          "RUST_DEFAULT_PACKAGE_RUN": "zen",
         },
       },
     },
@@ -57,8 +57,6 @@
   "remove_trailing_whitespace_on_save": true,
   "ensure_final_newline_on_save": true,
   "file_scan_exclusions": [
-    "crates/agent/src/edit_agent/evals/fixtures",
-    "crates/agent/src/tools/evals/fixtures",
     "**/.git",
     "**/.svn",
     "**/.hg",

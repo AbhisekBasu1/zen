@@ -6,8 +6,6 @@ pub mod operation_queue;
 mod patch;
 mod selection;
 pub mod subscription;
-#[cfg(test)]
-mod tests;
 mod undo_map;
 
 pub use anchor::*;

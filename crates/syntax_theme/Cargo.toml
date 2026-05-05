@@ -21,6 +21,3 @@ doctest = false
 gpui.workspace = true
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
-
-[dev-dependencies]
-gpui = { workspace = true, features = ["test-support"] }

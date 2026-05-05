@@ -36,6 +36,20 @@ pub fn home_dir() -> &'static PathBuf {
     })
 }
 
+pub fn expand_tilde(path: &str) -> Cow<'_, str> {
+    let Some(rest) = path.strip_prefix('~') else {
+        return Cow::Borrowed(path);
+    };
+
+    if !rest.is_empty() && !rest.starts_with('/') && !rest.starts_with('\\') {
+        return Cow::Borrowed(path);
+    }
+
+    let mut expanded = home_dir().to_string_lossy().into_owned();
+    expanded.push_str(rest);
+    Cow::Owned(expanded)
+}
+
 pub trait PathExt {
     /// Compacts a given file path by replacing the user's home directory
     /// prefix with a tilde (`~`).
@@ -2701,7 +2715,7 @@ mod tests {
 
     // #[perf]
     // fn project_search() {
-    //     let path = Path::new("/Users/someonetoignore/work/zed/zed.dev/node_modules");
+    //     let path = Path::new("/Users/example/work/zen/site/node_modules");
     //     let path_matcher =
     //         PathMatcher::new(&["**/node_modules/**".to_owned()], PathStyle::Posix).unwrap();
     //     assert!(

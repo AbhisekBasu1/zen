@@ -1,8 +1,8 @@
 pub mod row_chunk;
 
 use crate::{
-    ByteContent, DebuggerTextObject, LanguageScope, ModelineSettings, Outline, OutlineConfig,
-    PLAIN_TEXT, RunnableCapture, RunnableTag, TextObject, TreeSitterOptions, analyze_byte_content,
+    ByteContent, LanguageScope, ModelineSettings, Outline, OutlineConfig, PLAIN_TEXT, TextObject,
+    TreeSitterOptions, analyze_byte_content,
     diagnostic_set::{DiagnosticEntry, DiagnosticEntryRef, DiagnosticGroup},
     language_settings::{AutoIndentMode, LanguageSettings},
     outline::OutlineItem,
@@ -11,7 +11,6 @@ use crate::{
         MAX_BYTES_TO_QUERY, SyntaxLayer, SyntaxMap, SyntaxMapCapture, SyntaxMapCaptures,
         SyntaxMapMatch, SyntaxMapMatches, SyntaxSnapshot, ToTreeSitterPoint,
     },
-    task_context::RunnableRange,
     text_diff::text_diff,
     unified_diff_with_offsets,
 };
@@ -36,7 +35,6 @@ use gpui::{
 use lsp::LanguageServerId;
 use parking_lot::Mutex;
 use settings::WorktreeId;
-use smallvec::SmallVec;
 use std::{
     any::Any,
     borrow::Cow,
@@ -589,13 +587,6 @@ pub enum CharScopeContext {
     /// identifiers during linked editing operations, such as '.' in JSX
     /// component names like `<Animated.View>`.
     LinkedEdit,
-}
-
-/// A runnable is a set of data about a region that could be resolved into a task
-pub struct Runnable {
-    pub tags: SmallVec<[RunnableTag; 1]>,
-    pub language: Arc<Language>,
-    pub buffer: BufferId,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -2584,31 +2575,6 @@ impl Buffer {
         {
             self.set_active_selections(Arc::default(), false, Default::default(), cx);
         }
-    }
-
-    pub fn set_agent_selections(
-        &mut self,
-        selections: Arc<[Selection<Anchor>]>,
-        line_mode: bool,
-        cursor_shape: CursorShape,
-        cx: &mut Context<Self>,
-    ) {
-        let lamport_timestamp = self.text.lamport_clock.tick();
-        self.remote_selections.insert(
-            ReplicaId::AGENT,
-            SelectionSet {
-                selections,
-                lamport_timestamp,
-                line_mode,
-                cursor_shape,
-            },
-        );
-        self.non_text_state_update_count += 1;
-        cx.notify();
-    }
-
-    pub fn remove_agent_selections(&mut self, cx: &mut Context<Self>) {
-        self.set_agent_selections(Arc::default(), false, Default::default(), cx);
     }
 
     /// Replaces the buffer's entire text.
@@ -4888,73 +4854,6 @@ impl BufferSnapshot {
             .filter(|pair| !pair.newline_only)
     }
 
-    pub fn debug_variables_query<T: ToOffset>(
-        &self,
-        range: Range<T>,
-    ) -> impl Iterator<Item = (Range<usize>, DebuggerTextObject)> + '_ {
-        let range = range.start.to_previous_offset(self)..range.end.to_next_offset(self);
-
-        let mut matches = self.syntax.matches_with_options(
-            range.clone(),
-            &self.text,
-            TreeSitterOptions::default(),
-            |grammar| grammar.debug_variables_config.as_ref().map(|c| &c.query),
-        );
-
-        let configs = matches
-            .grammars()
-            .iter()
-            .map(|grammar| grammar.debug_variables_config.as_ref())
-            .collect::<Vec<_>>();
-
-        let mut captures = Vec::<(Range<usize>, DebuggerTextObject)>::new();
-
-        iter::from_fn(move || {
-            loop {
-                while let Some(capture) = captures.pop() {
-                    if capture.0.overlaps(&range) {
-                        return Some(capture);
-                    }
-                }
-
-                let mat = matches.peek()?;
-
-                let Some(config) = configs[mat.grammar_index].as_ref() else {
-                    matches.advance();
-                    continue;
-                };
-
-                for capture in mat.captures {
-                    let Some(ix) = config
-                        .objects_by_capture_ix
-                        .binary_search_by_key(&capture.index, |e| e.0)
-                        .ok()
-                    else {
-                        continue;
-                    };
-                    let text_object = config.objects_by_capture_ix[ix].1;
-                    let byte_range = capture.node.byte_range();
-
-                    let mut found = false;
-                    for (range, existing) in captures.iter_mut() {
-                        if existing == &text_object {
-                            range.start = range.start.min(byte_range.start);
-                            range.end = range.end.max(byte_range.end);
-                            found = true;
-                            break;
-                        }
-                    }
-
-                    if !found {
-                        captures.push((byte_range, text_object));
-                    }
-                }
-
-                matches.advance();
-            }
-        })
-    }
-
     pub fn text_object_ranges<T: ToOffset>(
         &self,
         range: Range<T>,
@@ -5149,111 +5048,6 @@ impl BufferSnapshot {
             });
             syntax_matches.advance();
             ranges
-        })
-    }
-
-    pub fn runnable_ranges(
-        &self,
-        offset_range: Range<usize>,
-    ) -> impl Iterator<Item = RunnableRange> + '_ {
-        let mut syntax_matches = self.syntax.matches(offset_range, self, |grammar| {
-            grammar.runnable_config.as_ref().map(|config| &config.query)
-        });
-
-        let test_configs = syntax_matches
-            .grammars()
-            .iter()
-            .map(|grammar| grammar.runnable_config.as_ref())
-            .collect::<Vec<_>>();
-
-        iter::from_fn(move || {
-            loop {
-                let mat = syntax_matches.peek()?;
-
-                let test_range = test_configs[mat.grammar_index].and_then(|test_configs| {
-                    let mut run_range = None;
-                    let full_range = mat.captures.iter().fold(
-                        Range {
-                            start: usize::MAX,
-                            end: 0,
-                        },
-                        |mut acc, next| {
-                            let byte_range = next.node.byte_range();
-                            if acc.start > byte_range.start {
-                                acc.start = byte_range.start;
-                            }
-                            if acc.end < byte_range.end {
-                                acc.end = byte_range.end;
-                            }
-                            acc
-                        },
-                    );
-                    if full_range.start > full_range.end {
-                        // We did not find a full spanning range of this match.
-                        return None;
-                    }
-                    let extra_captures: SmallVec<[_; 1]> =
-                        SmallVec::from_iter(mat.captures.iter().filter_map(|capture| {
-                            test_configs
-                                .extra_captures
-                                .get(capture.index as usize)
-                                .cloned()
-                                .and_then(|tag_name| match tag_name {
-                                    RunnableCapture::Named(name) => {
-                                        Some((capture.node.byte_range(), name))
-                                    }
-                                    RunnableCapture::Run => {
-                                        let _ = run_range.insert(capture.node.byte_range());
-                                        None
-                                    }
-                                })
-                        }));
-                    let run_range = run_range?;
-                    let tags = test_configs
-                        .query
-                        .property_settings(mat.pattern_index)
-                        .iter()
-                        .filter_map(|property| {
-                            if *property.key == *"tag" {
-                                property
-                                    .value
-                                    .as_ref()
-                                    .map(|value| RunnableTag(value.to_string().into()))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-                    let extra_captures = extra_captures
-                        .into_iter()
-                        .map(|(range, name)| {
-                            (
-                                name.to_string(),
-                                self.text_for_range(range).collect::<String>(),
-                            )
-                        })
-                        .collect();
-                    // All tags should have the same range.
-                    Some(RunnableRange {
-                        run_range,
-                        full_range,
-                        runnable: Runnable {
-                            tags,
-                            language: mat.language,
-                            buffer: self.remote_id(),
-                        },
-                        extra_captures,
-                        buffer_id: self.remote_id(),
-                    })
-                });
-
-                syntax_matches.advance();
-                if test_range.is_some() {
-                    // It's fine for us to short-circuit on .peek()? returning None. We don't want to return None from this iter if we
-                    // had a capture that did not contain a run marker, hence we'll just loop around for the next capture.
-                    return test_range;
-                }
-            }
         })
     }
 

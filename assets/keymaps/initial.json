@@ -1,21 +1,13 @@
-// Zed keymap
+// Zen keymap
 //
-// For information on binding keys, see the Zed
-// documentation: https://zed.dev/docs/key-bindings
+// For information on binding keys, see the Zen documentation.
 //
-// To see the default key bindings run `zed: open default keymap`
-// from the command palette.
+// To see the default key bindings, use the default keymap action.
 [
   {
     "context": "Workspace",
     "bindings": {
       // "shift shift": "file_finder::Toggle"
-    },
-  },
-  {
-    "context": "Editor && vim_mode == insert",
-    "bindings": {
-      // "j k": "vim::NormalBefore"
     },
   },
 ]

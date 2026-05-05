@@ -25,7 +25,7 @@ use project_diff::ProjectDiff;
 use time::OffsetDateTime;
 use ui::prelude::*;
 use workspace::{ModalView, OpenMode, Workspace, notifications::DetachAndPromptErr};
-use zed_actions;
+use zen_actions;
 
 use crate::{commit_view::CommitView, git_panel::GitPanel, text_diff_view::TextDiffView};
 
@@ -50,8 +50,6 @@ pub mod worktree_names;
 pub mod worktree_picker;
 pub mod worktree_service;
 
-pub use conflict_view::MergeConflictIndicator;
-
 pub fn init(cx: &mut App) {
     editor::set_blame_renderer(blame_ui::GitBlameRenderer, cx);
     commit_view::init(cx);
@@ -69,17 +67,17 @@ pub fn init(cx: &mut App) {
         git_picker::register(workspace);
 
         workspace.register_action(
-            |workspace, action: &zed_actions::CreateWorktree, window, cx| {
+            |workspace, action: &zen_actions::CreateWorktree, window, cx| {
                 worktree_service::handle_create_worktree(workspace, action, window, None, cx);
             },
         );
         workspace.register_action(
-            |workspace, action: &zed_actions::SwitchWorktree, window, cx| {
+            |workspace, action: &zen_actions::SwitchWorktree, window, cx| {
                 worktree_service::handle_switch_worktree(workspace, action, window, None, cx);
             },
         );
 
-        workspace.register_action(|workspace, _: &zed_actions::git::Worktree, window, cx| {
+        workspace.register_action(|workspace, _: &zen_actions::git::Worktree, window, cx| {
             let focused_dock = workspace.focused_dock_position(window, cx);
             let project = workspace.project().clone();
             let workspace_handle = workspace.weak_handle();
@@ -95,34 +93,16 @@ pub fn init(cx: &mut App) {
         });
 
         workspace.register_action(
-            |workspace, action: &zed_actions::OpenWorktreeInNewWindow, window, cx| {
+            |workspace, action: &zen_actions::OpenWorktreeInNewWindow, window, cx| {
                 let path = action.path.clone();
-                let is_remote = !workspace.project().read(cx).is_local();
-
-                if is_remote {
-                    let connection_options =
-                        workspace.project().read(cx).remote_connection_options(cx);
-                    let app_state = workspace.app_state().clone();
-                    let workspace_handle = workspace.weak_handle();
-                    cx.spawn_in(window, async move |_, cx| {
-                        if let Some(connection_options) = connection_options {
-                            crate::worktree_picker::open_remote_worktree(
-                                connection_options,
-                                vec![path],
-                                app_state,
-                                workspace_handle,
-                                cx,
-                            )
-                            .await?;
-                        }
-                        anyhow::Ok(())
-                    })
-                    .detach_and_log_err(cx);
-                } else {
-                    workspace
-                        .open_workspace_for_paths(OpenMode::NewWindow, vec![path], window, cx)
-                        .detach_and_log_err(cx);
+                if !workspace.project().read(cx).is_local() {
+                    log::info!("ignoring remote worktree open request in stripped build");
+                    return;
                 }
+
+                workspace
+                    .open_workspace_for_paths(OpenMode::NewWindow, vec![path], window, cx)
+                    .detach_and_log_err(cx);
             },
         );
 
@@ -132,7 +112,7 @@ pub fn init(cx: &mut App) {
         }
         if !project.is_via_collab() {
             workspace.register_action(
-                |workspace, _: &zed_actions::git::CreatePullRequest, window, cx| {
+                |workspace, _: &zen_actions::git::CreatePullRequest, window, cx| {
                     if let Some(panel) = workspace.panel::<git_panel::GitPanel>(cx) {
                         panel.update(cx, |panel, cx| {
                             panel.create_pull_request(window, cx);

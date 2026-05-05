@@ -13,7 +13,6 @@ use crate::{
     worktree_store::{WorktreeStore, WorktreeStoreEvent},
 };
 use anyhow::{Context as _, Result, anyhow, bail};
-use askpass::{AskPassDelegate, EncryptedPassword, IKnowWhatIAmDoingAndIHaveReadTheDocs};
 use buffer_diff::{BufferDiff, BufferDiffEvent};
 use client::ProjectId;
 use collections::HashMap;
@@ -29,7 +28,8 @@ use futures::{
     stream::{FuturesOrdered, FuturesUnordered},
 };
 use git::{
-    BuildPermalinkParams, GitHostingProviderRegistry, Oid, RunHook,
+    AskPassDelegate, BuildPermalinkParams, EncryptedPassword, GitHostingProviderRegistry,
+    IKnowWhatIAmDoingAndIHaveReadTheDocs, Oid, RunHook,
     blame::Blame,
     parse_git_remote_url,
     repository::{
@@ -80,19 +80,20 @@ use std::{
     time::{Duration, Instant},
 };
 use sum_tree::{Edit, SumTree, TreeMap};
-use task::Shell;
 use text::{Bias, BufferId};
 use util::{
-    ResultExt, debug_panic,
+    ResultExt,
+    command::{find_executable, find_executable_in_paths},
+    debug_panic,
     paths::{PathStyle, SanitizedPath},
     post_inc,
     rel_path::RelPath,
+    shell::Shell,
 };
 use worktree::{
     File, PathChange, PathKey, PathProgress, PathSummary, PathTarget, ProjectEntryId,
     UpdatedGitRepositoriesSet, UpdatedGitRepository, Worktree,
 };
-use zeroize::Zeroize;
 
 pub struct GitStore {
     state: GitStoreState,
@@ -437,10 +438,9 @@ impl LocalRepositoryState {
                 async move {
                     let system_git_binary_path = search_paths
                         .and_then(|search_paths| {
-                            which::which_in("git", Some(search_paths), &work_directory_abs_path)
-                                .ok()
+                            find_executable_in_paths("git", search_paths, &work_directory_abs_path)
                         })
-                        .or_else(|| which::which("git").ok());
+                        .or_else(|| find_executable("git"));
                     fs.open_repo(&dot_git_abs_path, system_git_binary_path.as_deref())
                         .with_context(|| format!("opening repository at {dot_git_abs_path:?}"))
                 }
@@ -2047,7 +2047,7 @@ impl GitStore {
             GitStoreState::Remote {
                 upstream_client, ..
             } => {
-                // Prevent running git config commands for collab.
+                // Prevent running git config commands for remote guests.
                 if upstream_client.is_via_collab() {
                     return Task::ready(Err(anyhow!(
                         "Git Config isn't support for project guests"
@@ -3917,10 +3917,9 @@ fn make_remote_delegate(
                 prompt,
             });
             cx.spawn(async move |_, _| {
-                let mut response = response.await?.response;
+                let response = response.await?.response;
                 tx.send(EncryptedPassword::try_from(response.as_ref())?)
                     .ok();
-                response.zeroize();
                 anyhow::Ok(())
             })
             .detach_and_log_err(cx);
@@ -5020,7 +5019,7 @@ impl Repository {
                             .await
                         }
                         Ok(RepositoryState::Remote(_)) => {
-                            Err("Git graph is not supported for collab yet".into())
+                            Err("Git graph is not supported for remote projects yet".into())
                         }
                         Err(e) => Err(SharedString::from(e)),
                     };

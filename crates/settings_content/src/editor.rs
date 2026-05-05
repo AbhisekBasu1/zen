@@ -1,7 +1,5 @@
 use std::fmt::Display;
-use std::num;
 
-use collections::HashMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use settings_macros::{MergeFrom, with_fallible_options};
@@ -47,33 +45,10 @@ pub struct EditorSettingsContent {
     ///
     /// Default: 75
     pub lsp_highlight_debounce: Option<DelayMs>,
-    /// Whether to show the informational hover box when moving the mouse
-    /// over symbols in the editor.
-    ///
-    /// Default: true
-    pub hover_popover_enabled: Option<bool>,
-    /// Time to wait in milliseconds before showing the informational hover box.
-    /// This delay also applies to auto signature help when `auto_signature_help` is enabled.
-    ///
-    /// Default: 300
-    pub hover_popover_delay: Option<DelayMs>,
-    /// Whether the hover popover sticks when the mouse moves toward it,
-    /// allowing interaction with its contents before it disappears.
-    ///
-    /// Default: true
-    pub hover_popover_sticky: Option<bool>,
-    /// Time to wait in milliseconds before hiding the hover popover
-    /// after the mouse moves away from the hover target.
-    /// Only applies when `hover_popover_sticky` is enabled.
-    ///
-    /// Default: 300
-    pub hover_popover_hiding_delay: Option<DelayMs>,
     /// Toolbar related settings
     pub toolbar: Option<ToolbarContent>,
     /// Scrollbar related settings
     pub scrollbar: Option<ScrollbarContent>,
-    /// Minimap related settings
-    pub minimap: Option<MinimapContent>,
     /// Gutter related settings
     pub gutter: Option<GutterContent>,
     /// Whether the editor will scroll beyond the last line.
@@ -168,15 +143,6 @@ pub struct EditorSettingsContent {
     /// Default: nothing is enabled
     pub search: Option<SearchSettingsContent>,
 
-    /// Whether to automatically show a signature help pop-up or not.
-    ///
-    /// Default: false
-    pub auto_signature_help: Option<bool>,
-
-    /// Whether to show the signature help pop-up after completions or bracket pairs inserted.
-    ///
-    /// Default: false
-    pub show_signature_help_after_edits: Option<bool>,
     /// The minimum APCA perceptual contrast to maintain when
     /// rendering text over highlight backgrounds in the editor.
     ///
@@ -198,9 +164,6 @@ pub struct EditorSettingsContent {
     /// Default: center
     pub go_to_definition_scroll_strategy: Option<GoToDefinitionScrollStrategy>,
 
-    /// Jupyter REPL settings.
-    pub jupyter: Option<JupyterContent>,
-
     /// Which level to use to filter out diagnostics displayed in the editor.
     ///
     /// Affects the editor rendering only, and does not interrupt
@@ -221,15 +184,6 @@ pub struct EditorSettingsContent {
     /// Drag and drop related settings
     pub drag_and_drop_selection: Option<DragAndDropSelectionContent>,
 
-    /// Whether and how to display code lenses from language servers.
-    ///
-    /// Default: "off"
-    pub code_lens: Option<CodeLens>,
-
-    /// How to render LSP `textDocument/documentColor` colors in the editor.
-    ///
-    /// Default: [`DocumentColorsRenderMode::Inlay`]
-    pub lsp_document_colors: Option<DocumentColorsRenderMode>,
     /// When to show the scrollbar in the completion menu.
     /// This setting can take four values:
     ///
@@ -323,10 +277,6 @@ impl RelativeLineNumbers {
 #[with_fallible_options]
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq, Eq)]
 pub struct ToolbarContent {
-    /// Whether to display breadcrumbs in the editor toolbar.
-    ///
-    /// Default: true
-    pub breadcrumbs: Option<bool>,
     /// Whether to display quick action buttons in the editor toolbar.
     ///
     /// Default: true
@@ -335,11 +285,6 @@ pub struct ToolbarContent {
     ///
     /// Default: true
     pub selections_menu: Option<bool>,
-    /// Whether to display Agent review buttons in the editor toolbar.
-    /// Only applicable while reviewing a file edited by the Agent.
-    ///
-    /// Default: true
-    pub agent_review: Option<bool>,
     /// Whether to display code action buttons in the editor toolbar.
     ///
     /// Default: false
@@ -392,41 +337,6 @@ pub struct StickyScrollContent {
     pub enabled: Option<bool>,
 }
 
-/// Minimap related settings
-#[with_fallible_options]
-#[derive(Clone, Default, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq)]
-pub struct MinimapContent {
-    /// When to show the minimap in the editor.
-    ///
-    /// Default: never
-    pub show: Option<ShowMinimap>,
-
-    /// Where to show the minimap in the editor.
-    ///
-    /// Default: [`DisplayIn::ActiveEditor`]
-    pub display_in: Option<DisplayIn>,
-
-    /// When to show the minimap thumb.
-    ///
-    /// Default: always
-    pub thumb: Option<MinimapThumb>,
-
-    /// Defines the border style for the minimap's scrollbar thumb.
-    ///
-    /// Default: left_open
-    pub thumb_border: Option<MinimapThumbBorder>,
-
-    /// How to highlight the current line in the minimap.
-    ///
-    /// Default: inherits editor line highlights setting
-    pub current_line_highlight: Option<CurrentLineHighlight>,
-
-    /// Maximum number of columns to display in the minimap.
-    ///
-    /// Default: 80
-    pub max_width_columns: Option<num::NonZeroU32>,
-}
-
 /// Forcefully enable or disable the scrollbar for each axis
 #[with_fallible_options]
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq, Default)]
@@ -454,14 +364,6 @@ pub struct GutterContent {
     ///
     /// Default: 4
     pub min_line_number_digits: Option<usize>,
-    /// Whether to show runnable buttons in the gutter.
-    ///
-    /// Default: true
-    pub runnables: Option<bool>,
-    /// Whether to show breakpoints in the gutter.
-    ///
-    /// Default: true
-    pub breakpoints: Option<bool>,
     /// Whether to show bookmarks in the gutter.
     ///
     /// Default: true
@@ -470,74 +372,6 @@ pub struct GutterContent {
     ///
     /// Default: true
     pub folds: Option<bool>,
-}
-
-/// Whether to display code lenses from language servers above code elements.
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    JsonSchema,
-    MergeFrom,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum CodeLens {
-    /// Do not query and display code lenses.
-    #[default]
-    Off,
-    /// Display code lenses from language servers above code elements.
-    On,
-    /// Display code lenses in the code action menu.
-    Menu,
-}
-
-impl CodeLens {
-    pub fn enabled(&self) -> bool {
-        self != &Self::Off
-    }
-
-    pub fn inline(&self) -> bool {
-        *self == Self::On
-    }
-
-    pub fn show_in_menu(&self) -> bool {
-        *self == Self::Menu
-    }
-}
-
-/// How to render LSP `textDocument/documentColor` colors in the editor.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    Eq,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum DocumentColorsRenderMode {
-    /// Do not query and render document colors.
-    None,
-    /// Render document colors as inlay hints near the color text.
-    #[default]
-    Inlay,
-    /// Draw a border around the color text.
-    Border,
-    /// Draw a background behind the color text.
-    Background,
 }
 
 #[derive(
@@ -612,64 +446,6 @@ pub enum DoubleClickInMultibuffer {
     /// Open the excerpt clicked as a new buffer in the new tab, if no `alt` modifier was pressed during double click.
     /// Otherwise, behave as a regular buffer and select the whole word.
     Open,
-}
-
-/// When to show the minimap thumb.
-///
-/// Default: always
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    Eq,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum MinimapThumb {
-    /// Show the minimap thumb only when the mouse is hovering over the minimap.
-    Hover,
-    /// Always show the minimap thumb.
-    #[default]
-    Always,
-}
-
-/// Defines the border style for the minimap's scrollbar thumb.
-///
-/// Default: left_open
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    Eq,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum MinimapThumbBorder {
-    /// Displays a border on all sides of the thumb.
-    Full,
-    /// Displays a border on all sides except the left side of the thumb.
-    #[default]
-    LeftOpen,
-    /// Displays a border on all sides except the right side of the thumb.
-    RightOpen,
-    /// Displays a border only on the left side of the thumb.
-    LeftOnly,
-    /// Displays the thumb without any border.
-    None,
 }
 
 /// Which diagnostic indicators to show in the scrollbar.
@@ -940,21 +716,6 @@ pub struct SearchSettingsContent {
     pub center_on_match: Option<bool>,
 }
 
-#[with_fallible_options]
-#[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, JsonSchema, MergeFrom)]
-#[serde(rename_all = "snake_case")]
-pub struct JupyterContent {
-    /// Whether the Jupyter feature is enabled.
-    ///
-    /// Default: true
-    pub enabled: Option<bool>,
-
-    /// Default kernels to select for each language.
-    ///
-    /// Default: `{}`
-    pub kernel_selections: Option<HashMap<String, String>>,
-}
-
 /// Whether to allow drag and drop text selection in buffer.
 #[with_fallible_options]
 #[derive(Clone, Default, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq, Eq)]
@@ -968,60 +729,6 @@ pub struct DragAndDropSelectionContent {
     ///
     /// Default: 300
     pub delay: Option<DelayMs>,
-}
-
-/// When to show the minimap in the editor.
-///
-/// Default: never
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    Eq,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum ShowMinimap {
-    /// Follow the visibility of the scrollbar.
-    Auto,
-    /// Always show the minimap.
-    Always,
-    /// Never show the minimap.
-    #[default]
-    Never,
-}
-
-/// Where to show the minimap in the editor.
-///
-/// Default: all_editors
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    Eq,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum DisplayIn {
-    /// Show on all open editors.
-    AllEditors,
-    /// Show the minimap on the active editor only.
-    #[default]
-    ActiveEditor,
 }
 
 /// Minimum APCA perceptual contrast for text over highlight backgrounds.

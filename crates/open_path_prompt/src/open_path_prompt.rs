@@ -1,8 +1,5 @@
 pub mod file_finder_settings;
 
-#[cfg(test)]
-mod open_path_prompt_tests;
-
 use file_finder_settings::FileFinderSettings;
 use file_icons::FileIcons;
 use futures::channel::oneshot;

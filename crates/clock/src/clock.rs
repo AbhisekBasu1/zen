@@ -18,8 +18,6 @@ impl ReplicaId {
     pub const LOCAL: ReplicaId = ReplicaId(0);
     /// The remote replica of the connected remote server.
     pub const REMOTE_SERVER: ReplicaId = ReplicaId(1);
-    /// The agent's unique identifier.
-    pub const AGENT: ReplicaId = ReplicaId(2);
     /// A local branch.
     pub const LOCAL_BRANCH: ReplicaId = ReplicaId(3);
     /// The first collaborative replica ID, any replica equal or greater than this is a collaborative replica.
@@ -44,8 +42,6 @@ impl fmt::Debug for ReplicaId {
             write!(f, "<local>")
         } else if *self == ReplicaId::REMOTE_SERVER {
             write!(f, "<remote>")
-        } else if *self == ReplicaId::AGENT {
-            write!(f, "<agent>")
         } else if *self == ReplicaId::LOCAL_BRANCH {
             write!(f, "<branch>")
         } else {
@@ -69,7 +65,7 @@ pub struct Lamport {
 #[derive(Default, Hash, Eq, PartialEq)]
 pub struct Global {
     // 4 is chosen as it is the biggest count that does not increase the size of the field itself.
-    // Coincidentally, it also covers all the important non-collab replica ids.
+    // Coincidentally, it also covers all important local replica ids.
     values: SmallVec<[u32; 4]>,
 }
 

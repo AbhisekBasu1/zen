@@ -1,11 +1,13 @@
 use anyhow::{Context as _, bail};
 use futures::{FutureExt, StreamExt as _, channel::mpsc, future::Shared};
 use language::Buffer;
-use remote::RemoteClient;
 use rpc::proto::{self, REMOTE_SERVER_PROJECT_ID};
 use std::{collections::VecDeque, path::Path, sync::Arc};
-use task::{Shell, shell_to_proto};
-use util::{ResultExt, command::new_command};
+use util::{
+    ResultExt,
+    command::{find_executable, new_command},
+    shell::Shell,
+};
 use worktree::Worktree;
 
 use collections::HashMap;
@@ -14,6 +16,7 @@ use settings::Settings as _;
 
 use crate::{
     project_settings::{DirenvSettings, ProjectSettings},
+    remote::RemoteClient,
     worktree_store::WorktreeStore,
 };
 
@@ -34,6 +37,21 @@ pub enum ProjectEnvironmentEvent {
 }
 
 impl EventEmitter<ProjectEnvironmentEvent> for ProjectEnvironment {}
+
+fn shell_to_proto(shell: Shell) -> proto::Shell {
+    let shell_type = match shell {
+        Shell::System => proto::shell::ShellType::System(proto::System {}),
+        Shell::Program(program) => proto::shell::ShellType::Program(program),
+        Shell::WithArguments {
+            program,
+            args,
+            title_override: _,
+        } => proto::shell::ShellType::WithArguments(proto::shell::WithArguments { program, args }),
+    };
+    proto::Shell {
+        shell_type: Some(shell_type),
+    }
+}
 
 impl ProjectEnvironment {
     pub fn new(
@@ -391,7 +409,7 @@ async fn load_direnv_environment(
     env: &HashMap<String, String>,
     dir: &Path,
 ) -> anyhow::Result<HashMap<String, Option<String>>> {
-    let Some(direnv_path) = which::which("direnv").ok() else {
+    let Some(direnv_path) = find_executable("direnv") else {
         return Ok(HashMap::default());
     };
 

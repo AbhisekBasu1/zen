@@ -5,10 +5,7 @@
 //! The core of this module is the [`InlayMap`] struct, which maintains a vec of [`Inlay`]s, and
 //! [`InlaySnapshot`], which holds a sum tree of [`Transform`]s.
 
-use crate::{
-    ChunkRenderer, HighlightStyles,
-    inlays::{Inlay, InlayContent},
-};
+use crate::{ChunkRenderer, HighlightStyles, inlays::Inlay};
 use collections::BTreeSet;
 use language::{Chunk, Edit, LanguageAwareStyling, Point, TextSummary};
 use multi_buffer::{
@@ -19,13 +16,11 @@ use project::InlayId;
 use std::{
     cmp, iter,
     ops::{Add, AddAssign, Range, Sub, SubAssign},
-    sync::Arc,
 };
 use sum_tree::{Bias, Cursor, Dimensions, SumTree};
 use text::{ChunkBitmaps, Patch};
-use ui::{ActiveTheme, IntoElement as _, ParentElement as _, Styled as _, div};
 
-use super::{Highlights, custom_highlights::CustomHighlightsChunks, fold_map::ChunkRendererId};
+use super::{Highlights, custom_highlights::CustomHighlightsChunks};
 
 /// Decides where the [`Inlay`]s should be displayed.
 ///
@@ -326,7 +321,7 @@ impl<'a> Iterator for InlayChunks<'a> {
                     }
                 }
 
-                let mut renderer = None;
+                let renderer = None;
                 let mut highlight_style = match inlay.id {
                     InlayId::EditPrediction(_) => self.highlight_styles.edit_prediction.map(|s| {
                         if inlay.text().chars().all(|c| c.is_whitespace()) {
@@ -335,66 +330,7 @@ impl<'a> Iterator for InlayChunks<'a> {
                             s.insertion
                         }
                     }),
-                    InlayId::Hint(_) => self.highlight_styles.inlay_hint,
-                    InlayId::DebuggerValue(_) => self.highlight_styles.inlay_hint,
-                    InlayId::ReplResult(_) => {
-                        let text = inlay.text().to_string();
-                        renderer = Some(ChunkRenderer {
-                            id: ChunkRendererId::Inlay(inlay.id),
-                            render: Arc::new(move |cx| {
-                                let colors = cx.theme().colors();
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .child(div().w_4())
-                                    .child(
-                                        div()
-                                            .px_1()
-                                            .rounded_sm()
-                                            .bg(colors.surface_background)
-                                            .text_color(colors.text_muted)
-                                            .text_xs()
-                                            .child(text.trim().to_string()),
-                                    )
-                                    .into_any_element()
-                            }),
-                            constrain_width: false,
-                            measured_width: None,
-                        });
-                        self.highlight_styles.inlay_hint
-                    }
-                    InlayId::Color(_) => {
-                        if let InlayContent::Color(color) = inlay.content {
-                            renderer = Some(ChunkRenderer {
-                                id: ChunkRendererId::Inlay(inlay.id),
-                                render: Arc::new(move |cx| {
-                                    div()
-                                        .relative()
-                                        .size_3p5()
-                                        .child(
-                                            div()
-                                                .absolute()
-                                                .right_1()
-                                                .size_3()
-                                                .border_1()
-                                                .border_color(
-                                                    if cx.theme().appearance().is_light() {
-                                                        gpui::black().opacity(0.5)
-                                                    } else {
-                                                        gpui::white().opacity(0.5)
-                                                    },
-                                                )
-                                                .bg(color),
-                                        )
-                                        .into_any_element()
-                                }),
-                                constrain_width: false,
-                                measured_width: None,
-                            });
-                        }
-                        self.highlight_styles.inlay_hint
-                    }
+                    InlayId::Hint(_) => self.highlight_styles.inlay,
                 };
                 let next_inlay_highlight_endpoint;
                 let offset_in_inlay = self.output_offset - self.transforms.start().0;
@@ -1222,7 +1158,6 @@ impl InlaySnapshot {
             buffer_range,
             language_aware,
             highlights.text_highlights,
-            highlights.semantic_token_highlights,
             &self.buffer,
         );
 
@@ -1352,8 +1287,6 @@ mod tests {
     };
     use collections::HashMap;
     use gpui::{App, HighlightStyle};
-    use multi_buffer::Anchor;
-    use project::{InlayHint, InlayHintLabel, ResolveState};
     use rand::prelude::*;
     use settings::SettingsStore;
     use std::{cmp::Reverse, env, sync::Arc};
@@ -1361,112 +1294,6 @@ mod tests {
     use text::{BufferId, Patch, Rope};
     use util::RandomCharIter;
     use util::post_inc;
-
-    #[test]
-    fn test_inlay_properties_label_padding() {
-        assert_eq!(
-            Inlay::hint(
-                InlayId::Hint(0),
-                Anchor::Min,
-                &InlayHint {
-                    label: InlayHintLabel::String("a".to_string()),
-                    position: text::Anchor::min_for_buffer(BufferId::new(1).unwrap()),
-                    padding_left: false,
-                    padding_right: false,
-                    tooltip: None,
-                    kind: None,
-                    resolve_state: ResolveState::Resolved,
-                },
-            )
-            .text()
-            .to_string(),
-            "a",
-            "Should not pad label if not requested"
-        );
-
-        assert_eq!(
-            Inlay::hint(
-                InlayId::Hint(0),
-                Anchor::Min,
-                &InlayHint {
-                    label: InlayHintLabel::String("a".to_string()),
-                    position: text::Anchor::min_for_buffer(BufferId::new(1).unwrap()),
-                    padding_left: true,
-                    padding_right: true,
-                    tooltip: None,
-                    kind: None,
-                    resolve_state: ResolveState::Resolved,
-                },
-            )
-            .text()
-            .to_string(),
-            " a ",
-            "Should pad label for every side requested"
-        );
-
-        assert_eq!(
-            Inlay::hint(
-                InlayId::Hint(0),
-                Anchor::Min,
-                &InlayHint {
-                    label: InlayHintLabel::String(" a ".to_string()),
-                    position: text::Anchor::min_for_buffer(BufferId::new(1).unwrap()),
-                    padding_left: false,
-                    padding_right: false,
-                    tooltip: None,
-                    kind: None,
-                    resolve_state: ResolveState::Resolved,
-                },
-            )
-            .text()
-            .to_string(),
-            " a ",
-            "Should not change already padded label"
-        );
-
-        assert_eq!(
-            Inlay::hint(
-                InlayId::Hint(0),
-                Anchor::Min,
-                &InlayHint {
-                    label: InlayHintLabel::String(" a ".to_string()),
-                    position: text::Anchor::min_for_buffer(BufferId::new(1).unwrap()),
-                    padding_left: true,
-                    padding_right: true,
-                    tooltip: None,
-                    kind: None,
-                    resolve_state: ResolveState::Resolved,
-                },
-            )
-            .text()
-            .to_string(),
-            " a ",
-            "Should not change already padded label"
-        );
-    }
-
-    #[gpui::test]
-    fn test_inlay_hint_padding_with_multibyte_chars() {
-        assert_eq!(
-            Inlay::hint(
-                InlayId::Hint(0),
-                Anchor::Min,
-                &InlayHint {
-                    label: InlayHintLabel::String("🎨".to_string()),
-                    position: text::Anchor::min_for_buffer(BufferId::new(1).unwrap()),
-                    padding_left: true,
-                    padding_right: true,
-                    tooltip: None,
-                    kind: None,
-                    resolve_state: ResolveState::Resolved,
-                },
-            )
-            .text()
-            .to_string(),
-            " 🎨 ",
-            "Should pad single emoji correctly"
-        );
-    }
 
     #[gpui::test]
     fn test_basic_inlays(cx: &mut App) {
@@ -2295,7 +2122,7 @@ mod tests {
         let inlay = Inlay {
             id: InlayId::Hint(0),
             position,
-            content: InlayContent::Text(text::Rope::from(inlay_text)),
+            content: crate::inlays::InlayContent::Text(text::Rope::from(inlay_text)),
         };
 
         let (inlay_snapshot, _) = inlay_map.splice(&[], vec![inlay]);
@@ -2307,7 +2134,6 @@ mod tests {
         let highlights = crate::display_map::Highlights {
             text_highlights: None,
             inlay_highlights: Some(&inlay_highlights),
-            semantic_token_highlights: None,
             styles: crate::display_map::HighlightStyles::default(),
         };
 
@@ -2413,7 +2239,7 @@ mod tests {
             let inlay = Inlay {
                 id: InlayId::Hint(0),
                 position,
-                content: InlayContent::Text(text::Rope::from(test_case.inlay_text)),
+                content: crate::inlays::InlayContent::Text(text::Rope::from(test_case.inlay_text)),
             };
 
             let (inlay_snapshot, _) = inlay_map.splice(&[], vec![inlay]);
@@ -2426,7 +2252,6 @@ mod tests {
             let highlights = crate::display_map::Highlights {
                 text_highlights: None,
                 inlay_highlights: Some(&inlay_highlights),
-                semantic_token_highlights: None,
                 styles: crate::display_map::HighlightStyles::default(),
             };
 

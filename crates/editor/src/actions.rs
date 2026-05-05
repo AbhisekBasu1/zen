@@ -290,15 +290,6 @@ pub struct CutToEndOfLine {
 #[action(namespace = editor)]
 pub struct FoldAtLevel(pub u32);
 
-/// Spawns the nearest available task from the current cursor position.
-#[derive(PartialEq, Clone, Deserialize, Default, JsonSchema, Action)]
-#[action(namespace = editor)]
-#[serde(deny_unknown_fields)]
-pub struct SpawnNearestTask {
-    #[serde(default)]
-    pub reveal: task::RevealStrategy,
-}
-
 #[derive(Clone, PartialEq, Action)]
 #[action(no_json, no_register)]
 pub struct DiffClipboardWithSelectionData {
@@ -377,16 +368,6 @@ pub struct InsertSnippet {
 }
 
 actions!(
-    debugger,
-    [
-        /// Runs program execution to the current cursor position.
-        RunToCursor,
-        /// Evaluates the selected text in the debugger context.
-        EvaluateSelectedText
-    ]
-);
-
-actions!(
     go_to_line,
     [
         /// Toggles the go to line dialog.
@@ -398,12 +379,6 @@ actions!(
 actions!(
     editor,
     [
-        /// Accepts the full edit prediction.
-        AcceptEditPrediction,
-        /// Accepts a partial edit prediction.
-        #[action(deprecated_aliases = ["editor::AcceptPartialCopilotSuggestion"])]
-        AcceptNextWordEditPrediction,
-        AcceptNextLineEditPrediction,
         /// Applies all diff hunks in the editor.
         ApplyAllDiffHunks,
         /// Applies the diff hunk at the current position.
@@ -606,8 +581,6 @@ actions!(
         HalfPageDown,
         /// Scrolls up by half a page.
         HalfPageUp,
-        /// Shows hover information for the symbol at cursor.
-        Hover,
         /// Increases indentation of selected lines.
         Indent,
         /// Inserts a UUID v4 at cursor position.
@@ -668,8 +641,6 @@ actions!(
         NewlineAbove,
         /// Inserts a new line below the current line.
         NewlineBelow,
-        /// Navigates to the next edit prediction.
-        NextEditPrediction,
         /// Scrolls to the next screen.
         NextScreen,
         /// Goes to the next snippet tabstop if one exists.
@@ -707,8 +678,6 @@ actions!(
         PageUp,
         /// Pastes from clipboard.
         Paste,
-        /// Navigates to the previous edit prediction.
-        PreviousEditPrediction,
         /// Goes to the previous snippet tabstop if one exists.
         PreviousSnippetTabstop,
         /// Redoes the last undone edit.
@@ -799,18 +768,10 @@ actions!(
         ShowCompletions,
         /// Shows the system character palette.
         ShowCharacterPalette,
-        /// Shows edit prediction at cursor.
-        ShowEditPrediction,
-        /// Shows signature help for the current function.
-        ShowSignatureHelp,
         /// Shows word completions.
         ShowWordCompletions,
         /// Randomly shuffles selected lines.
         ShuffleLines,
-        /// Navigates to the next signature in the signature help popup.
-        SignatureHelpNext,
-        /// Navigates to the previous signature in the signature help popup.
-        SignatureHelpPrevious,
         /// Sorts selected lines by length.
         SortLinesByLength,
         /// Sorts selected lines case-insensitively.
@@ -827,18 +788,8 @@ actions!(
         Backtab,
         /// Toggles a bookmark at the current line.
         ToggleBookmark,
-        /// Toggles a breakpoint at the current line.
-        ToggleBreakpoint,
         /// Toggles the case of selected text.
         ToggleCase,
-        /// Disables the breakpoint at the current line.
-        DisableBreakpoint,
-        /// Enables the breakpoint at the current line.
-        EnableBreakpoint,
-        /// Edits the log message for a breakpoint.
-        EditLogBreakpoint,
-        /// Toggles automatic signature help.
-        ToggleAutoSignatureHelp,
         /// Toggles inline git blame display.
         ToggleGitBlameInline,
         /// Opens the git commit for the blame at cursor.
@@ -847,22 +798,12 @@ actions!(
         ToggleDiagnostics,
         /// Toggles indent guides display.
         ToggleIndentGuides,
-        /// Toggles inlay hints display.
-        ToggleInlayHints,
-        /// Toggles code lens display.
-        ToggleCodeLens,
         /// Toggles semantic highlights display.
         ToggleSemanticHighlights,
-        /// Toggles inline values display.
-        ToggleInlineValues,
         /// Toggles inline diagnostics display.
         ToggleInlineDiagnostics,
-        /// Toggles edit prediction feature.
-        ToggleEditPrediction,
         /// Toggles line numbers display.
         ToggleLineNumbers,
-        /// Toggles the minimap display.
-        ToggleMinimap,
         /// Swaps the start and end of the current selection.
         SwapSelectionEnds,
         /// Sets a mark at the current position.
@@ -876,8 +817,6 @@ actions!(
         SubmitDiffReviewComment,
         /// Toggles the expanded state of the comments section in the overlay.
         ToggleReviewCommentsExpanded,
-        /// Sends all stored review comments to the Agent panel.
-        SendReviewToAgent,
         /// Toggles the selection menu.
         ToggleSelectionMenu,
         /// Toggles soft wrap mode.

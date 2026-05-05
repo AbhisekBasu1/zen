@@ -113,9 +113,6 @@ pub struct ThemeColors {
     ///
     /// This might be used to show when a toggleable icon button is selected.
     pub icon_accent: Hsla,
-    /// Color used to accent some debugger elements
-    /// Is used by breakpoints
-    pub debugger_accent: Hsla,
 
     // ===
     // UI Elements
@@ -154,15 +151,6 @@ pub struct ThemeColors {
     pub scrollbar_track_background: Hsla,
     /// The border color of the scrollbar track.
     pub scrollbar_track_border: Hsla,
-    /// The color of the minimap thumb.
-    pub minimap_thumb_background: Hsla,
-    /// The color of the minimap thumb when hovered over.
-    pub minimap_thumb_hover_background: Hsla,
-    /// The color of the minimap thumb whilst being actively dragged.
-    pub minimap_thumb_active_background: Hsla,
-    /// The border color of the minimap thumb.
-    pub minimap_thumb_border: Hsla,
-
     /// Background color for Vim Normal mode indicator.
     pub vim_normal_background: Hsla,
     /// Background color for Vim Insert mode indicator.
@@ -209,8 +197,6 @@ pub struct ThemeColors {
     pub editor_subheader_background: Hsla,
     pub editor_active_line_background: Hsla,
     pub editor_highlighted_line_background: Hsla,
-    /// Line color of the line a debugger is currently stopped at
-    pub editor_debugger_active_line_background: Hsla,
     /// Text Color. Used for the text of the line number in the editor gutter.
     pub editor_line_number: Hsla,
     /// Text Color. Used for the text of the line number in the editor gutter when the line is highlighted.
@@ -387,10 +373,6 @@ pub enum ThemeColorField {
     ScrollbarThumbBorder,
     ScrollbarTrackBackground,
     ScrollbarTrackBorder,
-    MinimapThumbBackground,
-    MinimapThumbHoverBackground,
-    MinimapThumbActiveBackground,
-    MinimapThumbBorder,
     EditorForeground,
     EditorBackground,
     EditorGutterBackground,
@@ -505,10 +487,6 @@ impl ThemeColors {
             ThemeColorField::ScrollbarThumbBorder => self.scrollbar_thumb_border,
             ThemeColorField::ScrollbarTrackBackground => self.scrollbar_track_background,
             ThemeColorField::ScrollbarTrackBorder => self.scrollbar_track_border,
-            ThemeColorField::MinimapThumbBackground => self.minimap_thumb_background,
-            ThemeColorField::MinimapThumbHoverBackground => self.minimap_thumb_hover_background,
-            ThemeColorField::MinimapThumbActiveBackground => self.minimap_thumb_active_background,
-            ThemeColorField::MinimapThumbBorder => self.minimap_thumb_border,
             ThemeColorField::EditorForeground => self.editor_foreground,
             ThemeColorField::EditorBackground => self.editor_background,
             ThemeColorField::EditorGutterBackground => self.editor_gutter_background,

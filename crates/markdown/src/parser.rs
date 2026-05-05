@@ -157,7 +157,10 @@ pub(crate) fn parse_markdown_with_options(
     let mut state = ParseState::default();
     let mut language_names = HashSet::default();
     let mut language_paths = HashSet::default();
+    #[cfg(feature = "html-preview")]
     let mut html_blocks = BTreeMap::default();
+    #[cfg(not(feature = "html-preview"))]
+    let html_blocks = BTreeMap::default();
     let mut within_link = false;
     let mut within_code_block = false;
     let mut within_metadata = false;
@@ -178,6 +181,7 @@ pub(crate) fn parse_markdown_with_options(
                 if let pulldown_cmark::Tag::HtmlBlock = &tag {
                     state.push_event(range.clone(), MarkdownEvent::Start(MarkdownTag::HtmlBlock));
 
+                    #[cfg(feature = "html-preview")]
                     if parse_html {
                         if let Some(block) =
                             html::html_parser::parse_html_block(&text[range.clone()], range.clone())

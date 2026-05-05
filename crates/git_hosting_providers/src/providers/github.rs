@@ -9,7 +9,7 @@ use http_client::{AsyncBody, HttpClient, HttpRequestExt, Request};
 use regex::Regex;
 use serde::Deserialize;
 use url::Url;
-use urlencoding::encode;
+use util::percent_encode_uri_component;
 
 use git::{
     BuildCommitPermalinkParams, BuildPermalinkParams, GitHostingProvider, ParsedGitRemote,
@@ -76,7 +76,7 @@ fn build_cdn_avatar_url(email: &str) -> Result<Url> {
     let email = normalize_author_email(email);
     Url::parse(&format!(
         "https://avatars.githubusercontent.com/u/e?email={}&s=128",
-        encode(email)
+        percent_encode_uri_component(email)
     ))
     .context("failed to construct avatar URL")
 }
@@ -253,7 +253,7 @@ impl GitHostingProvider for Github {
         source_branch: &str,
     ) -> Option<Url> {
         let ParsedGitRemote { owner, repo } = remote;
-        let encoded_source = encode(source_branch);
+        let encoded_source = percent_encode_uri_component(source_branch);
 
         self.base_url()
             .join(&format!("{owner}/{repo}/pull/new/{encoded_source}"))
@@ -464,12 +464,12 @@ mod tests {
             },
             BuildPermalinkParams::new(
                 "b2efec9824c45fcc90c9a7eb107a50d1772a60aa",
-                &repo_path("crates/zed/src/main.rs"),
+                &repo_path("crates/zen/src/main.rs"),
                 None,
             ),
         );
 
-        let expected_url = "https://github.com/zed-industries/zed/blob/b2efec9824c45fcc90c9a7eb107a50d1772a60aa/crates/zed/src/main.rs";
+        let expected_url = "https://github.com/zed-industries/zed/blob/b2efec9824c45fcc90c9a7eb107a50d1772a60aa/crates/zen/src/main.rs";
         assert_eq!(permalink.to_string(), expected_url.to_string())
     }
 

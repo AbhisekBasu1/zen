@@ -1,7 +1,6 @@
 use crate::{
-    CloseWindow, NewCenterTerminal, NewFile, NewTerminal, OpenInTerminal, OpenOptions,
-    OpenTerminal, OpenVisible, SplitDirection, ToggleFileFinder, ToggleProjectSymbols, ToggleZoom,
-    Workspace, WorkspaceItemBuilder, ZoomIn, ZoomOut,
+    CloseWindow, NewFile, OpenOptions, OpenVisible, SplitDirection, ToggleFileFinder,
+    ToggleProjectSymbols, ToggleZoom, Workspace, WorkspaceItemBuilder, ZoomIn, ZoomOut,
     focus_follows_mouse::FocusFollowsMouse as _,
     invalid_item_view::InvalidItemView,
     item::{
@@ -1123,10 +1122,6 @@ impl Pane {
                 pane.set_preview_item_id(Some(new_item_id), cx);
             }
 
-            if let Some(text) = new_item.telemetry_event_text(cx) {
-                telemetry::event!(text);
-            }
-
             pane.add_item_inner(
                 new_item,
                 true,
@@ -1351,10 +1346,6 @@ impl Pane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(text) = item.telemetry_event_text(cx) {
-            telemetry::event!(text);
-        }
-
         self.add_item_inner(
             item,
             activate_pane,
@@ -3272,9 +3263,6 @@ impl Pane {
 
                             let entry_abs_path = pane.read(cx).entry_abs_path(entry, cx);
                             let reveal_path = entry_abs_path.clone();
-                            let parent_abs_path = entry_abs_path
-                                .as_deref()
-                                .and_then(|abs_path| Some(abs_path.parent()?.to_path_buf()));
                             let relative_path = project_path
                                 .map(|project_path| project_path.path)
                                 .filter(|_| has_relative_path);
@@ -3298,7 +3286,7 @@ impl Pane {
                                 .when_some(entry_abs_path, |menu, abs_path| {
                                     menu.entry(
                                         "Copy Path",
-                                        Some(Box::new(zed_actions::workspace::CopyPath)),
+                                        Some(Box::new(zen_actions::workspace::CopyPath)),
                                         window.handler_for(&pane, move |_, _, cx| {
                                             cx.write_to_clipboard(ClipboardItem::new_string(
                                                 abs_path.to_string_lossy().into_owned(),
@@ -3309,7 +3297,7 @@ impl Pane {
                                 .when_some(relative_path, |menu, relative_path| {
                                     menu.entry(
                                         "Copy Relative Path",
-                                        Some(Box::new(zed_actions::workspace::CopyRelativePath)),
+                                        Some(Box::new(zen_actions::workspace::CopyRelativePath)),
                                         window.handler_for(&pane, move |this, _, cx| {
                                             let Some(project) = this.project.upgrade() else {
                                                 return;
@@ -3327,7 +3315,7 @@ impl Pane {
                                         menu.separator().entry(
                                             ui::utils::reveal_in_file_manager_label(is_remote),
                                             Some(Box::new(
-                                                zed_actions::editor::RevealInFileManager,
+                                                zen_actions::editor::RevealInFileManager,
                                             )),
                                             window.handler_for(&pane, move |pane, _, cx| {
                                                 if let Some(project) = pane.project.upgrade() {
@@ -3354,22 +3342,6 @@ impl Pane {
                                                     ))
                                                 })
                                                 .ok();
-                                        }),
-                                    )
-                                })
-                                .when_some(parent_abs_path, |menu, parent_abs_path| {
-                                    menu.entry(
-                                        "Open in Terminal",
-                                        Some(Box::new(OpenInTerminal)),
-                                        window.handler_for(&pane, move |_, window, cx| {
-                                            window.dispatch_action(
-                                                OpenTerminal {
-                                                    working_directory: parent_abs_path.clone(),
-                                                    local: false,
-                                                }
-                                                .boxed_clone(),
-                                                cx,
-                                            );
                                         }),
                                     )
                                 });
@@ -4224,12 +4196,6 @@ fn default_render_tab_bar_buttons(
                             .separator()
                             .action("Search Project", DeploySearch::default().boxed_clone())
                             .action("Search Symbols", ToggleProjectSymbols.boxed_clone())
-                            .separator()
-                            .action("New Terminal", NewTerminal::default().boxed_clone())
-                            .action(
-                                "New Center Terminal",
-                                NewCenterTerminal::default().boxed_clone(),
-                            )
                     }))
                 }),
         )

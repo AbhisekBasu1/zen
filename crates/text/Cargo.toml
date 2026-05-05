@@ -28,11 +28,3 @@ rope.workspace = true
 smallvec.workspace = true
 sum_tree.workspace = true
 util.workspace = true
-
-[dev-dependencies]
-collections = { workspace = true, features = ["test-support"] }
-ctor.workspace = true
-gpui = { workspace = true, features = ["test-support"] }
-rand.workspace = true
-util = { workspace = true, features = ["test-support"] }
-zlog.workspace = true

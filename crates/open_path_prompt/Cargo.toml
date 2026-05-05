@@ -19,14 +19,6 @@ ui.workspace = true
 util.workspace = true
 workspace.workspace = true
 
-[dev-dependencies]
-editor = {workspace = true, features = ["test-support"]}
-gpui = {workspace = true, features = ["test-support"]}
-serde_json.workspace = true
-theme = {workspace = true, features = ["test-support"]}
-theme_settings.workspace = true
-workspace = {workspace = true, features = ["test-support"]}
-
 [lints]
 workspace = true
 

@@ -1,21 +1,14 @@
 use crate::{
     Copy, CopyAndTrim, CopyPermalinkToLine, Cut, DisplayPoint, DisplaySnapshot, Editor,
-    EvaluateSelectedText, FindAllReferences, GoToDeclaration, GoToDefinition, GoToImplementation,
-    GoToTypeDefinition, Paste, Rename, RevealInFileManager, RunToCursor, SelectMode,
-    SelectionEffects, SelectionExt, ToDisplayPoint, ToggleCodeActions,
+    FindAllReferences, GoToDeclaration, GoToDefinition, GoToImplementation, GoToTypeDefinition,
+    Paste, Rename, RevealInFileManager, SelectMode, SelectionEffects, SelectionExt, ToDisplayPoint,
+    ToggleCodeActions,
     actions::{Format, FormatSelections},
     selections_collection::SelectionsCollection,
 };
 use gpui::prelude::FluentBuilder;
 use gpui::{Context, DismissEvent, Entity, Focusable as _, Pixels, Point, Subscription, Window};
-use project::DisableAiSettings;
 use std::ops::Range;
-use text::PointUtf16;
-use workspace::OpenInTerminal;
-use zed_actions::agent::AddSelectionToThread;
-use zed_actions::preview::{
-    markdown::OpenPreview as OpenMarkdownPreview, svg::OpenPreview as OpenSvgPreview,
-};
 
 #[derive(Debug)]
 pub enum MenuPosition {
@@ -200,11 +193,6 @@ pub fn deploy_context_menu(
 
         let focus = window.focused(cx);
         let has_reveal_target = editor.target_file(cx).is_some();
-        let has_selections = editor
-            .selections
-            .all::<PointUtf16>(&display_map)
-            .into_iter()
-            .any(|s| !s.is_empty());
         let has_git_repo =
             buffer
                 .anchor_to_buffer_anchor(anchor)
@@ -217,45 +205,10 @@ pub fn deploy_context_menu(
                         .is_some()
                 });
 
-        let evaluate_selection = window.is_action_available(&EvaluateSelectedText, cx);
-        let run_to_cursor = window.is_action_available(&RunToCursor, cx);
         let format_selections = window.is_action_available(&FormatSelections, cx);
-        let disable_ai = DisableAiSettings::is_ai_disabled_for_buffer(
-            editor.buffer.read(cx).as_singleton().as_ref(),
-            cx,
-        );
-
-        let is_markdown = editor
-            .buffer()
-            .read(cx)
-            .as_singleton()
-            .and_then(|buffer| buffer.read(cx).language())
-            .is_some_and(|language| language.name().as_ref() == "Markdown");
-
-        let is_svg = editor
-            .buffer()
-            .read(cx)
-            .as_singleton()
-            .and_then(|buffer| buffer.read(cx).file())
-            .is_some_and(|file| {
-                std::path::Path::new(file.file_name(cx))
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
-            });
-
         ui::ContextMenu::build(window, cx, |menu, _window, _cx| {
             let builder = menu
                 .on_blur_subscription(Subscription::new(|| {}))
-                .when(run_to_cursor, |builder| {
-                    builder.action("Run to Cursor", Box::new(RunToCursor))
-                })
-                .when(evaluate_selection && has_selections, |builder| {
-                    builder.action("Evaluate Selection", Box::new(EvaluateSelectedText))
-                })
-                .when(
-                    run_to_cursor || (evaluate_selection && has_selections),
-                    |builder| builder.separator(),
-                )
                 .action("Go to Definition", Box::new(GoToDefinition))
                 .action("Go to Declaration", Box::new(GoToDeclaration))
                 .action("Go to Type Definition", Box::new(GoToTypeDefinition))
@@ -277,9 +230,6 @@ pub fn deploy_context_menu(
                         quick_launch: false,
                     }),
                 )
-                .when(!disable_ai && has_selections, |this| {
-                    this.action("Add to Agent Thread", Box::new(AddSelectionToThread))
-                })
                 .separator()
                 .action("Cut", Box::new(Cut))
                 .action("Copy", Box::new(Copy))
@@ -290,17 +240,6 @@ pub fn deploy_context_menu(
                     !has_reveal_target,
                     ui::utils::reveal_in_file_manager_label(false),
                     Box::new(RevealInFileManager),
-                )
-                .when(is_markdown, |builder| {
-                    builder.action("Open Markdown Preview", Box::new(OpenMarkdownPreview))
-                })
-                .when(is_svg, |builder| {
-                    builder.action("Open SVG Preview", Box::new(OpenSvgPreview))
-                })
-                .action_disabled_when(
-                    !has_reveal_target,
-                    "Open in Terminal",
-                    Box::new(OpenInTerminal),
                 )
                 .action_disabled_when(
                     !has_git_repo,

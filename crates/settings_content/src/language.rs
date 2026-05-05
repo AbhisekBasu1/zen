@@ -1,4 +1,4 @@
-use std::{num::NonZeroU32, path::Path};
+use std::num::NonZeroU32;
 
 use collections::{HashMap, HashSet};
 use schemars::JsonSchema;
@@ -6,36 +6,11 @@ use serde::{Deserialize, Serialize};
 use settings_macros::{MergeFrom, with_fallible_options};
 use std::sync::Arc;
 
-use crate::{DocumentFoldingRanges, DocumentSymbols, ExtendingVec, SemanticTokens, merge_from};
-
-/// The state of the modifier keys at some point in time
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema, MergeFrom)]
-pub struct ModifiersContent {
-    /// The control key
-    #[serde(default)]
-    pub control: bool,
-    /// The alt key
-    /// Sometimes also known as the 'meta' key
-    #[serde(default)]
-    pub alt: bool,
-    /// The shift key
-    #[serde(default)]
-    pub shift: bool,
-    /// The command key, on macos
-    /// the windows key, on windows
-    /// the super key, on linux
-    #[serde(default)]
-    pub platform: bool,
-    /// The function key
-    #[serde(default)]
-    pub function: bool,
-}
+use crate::{ExtendingVec, SemanticTokens, merge_from};
 
 #[with_fallible_options]
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct AllLanguageSettingsContent {
-    /// The edit prediction settings.
-    pub edit_predictions: Option<EditPredictionSettingsContent>,
     /// The default language settings.
     #[serde(flatten)]
     pub defaults: LanguageSettingsContent,
@@ -50,7 +25,6 @@ pub struct AllLanguageSettingsContent {
 impl merge_from::MergeFrom for AllLanguageSettingsContent {
     fn merge_from(&mut self, other: &Self) {
         self.file_types.merge_from(&other.file_types);
-        self.edit_predictions.merge_from(&other.edit_predictions);
 
         // A user's global settings override the default global settings and
         // all default language-specific settings.
@@ -72,269 +46,6 @@ impl merge_from::MergeFrom for AllLanguageSettingsContent {
             }
         }
     }
-}
-
-/// The provider that supplies edit predictions.
-#[derive(
-    Copy, Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum EditPredictionProvider {
-    None,
-    #[default]
-    Copilot,
-    Zed,
-    Codestral,
-    Ollama,
-    OpenAiCompatibleApi,
-    Mercury,
-}
-
-impl EditPredictionProvider {
-    pub fn is_zed(&self) -> bool {
-        match self {
-            EditPredictionProvider::Zed => true,
-            EditPredictionProvider::None
-            | EditPredictionProvider::Copilot
-            | EditPredictionProvider::Codestral
-            | EditPredictionProvider::Ollama
-            | EditPredictionProvider::OpenAiCompatibleApi
-            | EditPredictionProvider::Mercury => false,
-        }
-    }
-
-    pub fn display_name(&self) -> Option<&'static str> {
-        match self {
-            EditPredictionProvider::Zed => Some("Zed AI"),
-            EditPredictionProvider::Copilot => Some("GitHub Copilot"),
-            EditPredictionProvider::Codestral => Some("Codestral"),
-            EditPredictionProvider::Mercury => Some("Mercury"),
-            EditPredictionProvider::None => None,
-            EditPredictionProvider::Ollama => Some("Ollama"),
-            EditPredictionProvider::OpenAiCompatibleApi => Some("OpenAI-Compatible API"),
-        }
-    }
-}
-
-/// The contents of the edit prediction settings.
-#[with_fallible_options]
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq)]
-pub struct EditPredictionSettingsContent {
-    /// Determines which edit prediction provider to use.
-    pub provider: Option<EditPredictionProvider>,
-    /// A list of globs representing files that edit predictions should be disabled for.
-    /// This list adds to a pre-existing, sensible default set of globs.
-    /// Any additional ones you add are combined with them.
-    pub disabled_globs: Option<Vec<String>>,
-    /// The mode used to display edit predictions in the buffer.
-    /// Provider support required.
-    pub mode: Option<EditPredictionsMode>,
-    /// Settings specific to GitHub Copilot.
-    pub copilot: Option<CopilotSettingsContent>,
-    /// Settings specific to Codestral.
-    pub codestral: Option<CodestralSettingsContent>,
-    /// Settings specific to Ollama.
-    pub ollama: Option<OllamaEditPredictionSettingsContent>,
-    /// Settings specific to using custom OpenAI-compatible servers for edit prediction.
-    pub open_ai_compatible_api: Option<CustomEditPredictionProviderSettingsContent>,
-    /// The directory where manually captured edit prediction examples are stored.
-    pub examples_dir: Option<Arc<Path>>,
-    /// Controls whether Zed may collect training data when using Zed's Edit Predictions.
-    /// Data is only ever captured for files in projects that are detected as open source.
-    ///
-    /// - `"default"`: use the preference previously set via the status-bar toggle,
-    ///   or false if no preference has been stored.
-    /// - `"yes"`: allow data collection for files in open-source projects.
-    /// - `"no"`: never allow data collection.
-    pub allow_data_collection: Option<EditPredictionDataCollectionChoice>,
-}
-
-#[with_fallible_options]
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq)]
-pub struct CustomEditPredictionProviderSettingsContent {
-    /// Api URL to use for completions.
-    ///
-    /// Default: ""
-    pub api_url: Option<String>,
-    /// The prompt format to use for completions. Set to `""` to have the format be derived from the model name.
-    ///
-    /// Default: ""
-    pub prompt_format: Option<EditPredictionPromptFormat>,
-    /// The name of the model.
-    ///
-    /// Default: ""
-    pub model: Option<String>,
-    /// Maximum tokens to generate.
-    ///
-    /// Default: 256
-    pub max_output_tokens: Option<u32>,
-}
-
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum EditPredictionPromptFormat {
-    #[default]
-    Infer,
-    Zeta,
-    Zeta2,
-    CodeLlama,
-    StarCoder,
-    DeepseekCoder,
-    Qwen,
-    CodeGemma,
-    Codestral,
-    Glm,
-}
-
-#[with_fallible_options]
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq)]
-pub struct CopilotSettingsContent {
-    /// HTTP/HTTPS proxy to use for Copilot.
-    ///
-    /// Default: none
-    pub proxy: Option<String>,
-    /// Disable certificate verification for the proxy (not recommended).
-    ///
-    /// Default: false
-    pub proxy_no_verify: Option<bool>,
-    /// Enterprise URI for Copilot.
-    ///
-    /// Default: none
-    pub enterprise_uri: Option<String>,
-    /// Whether the Copilot Next Edit Suggestions feature is enabled.
-    ///
-    /// Default: true
-    pub enable_next_edit_suggestions: Option<bool>,
-}
-
-#[with_fallible_options]
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq)]
-pub struct CodestralSettingsContent {
-    /// Model to use for completions.
-    ///
-    /// Default: "codestral-latest"
-    pub model: Option<String>,
-    /// Maximum tokens to generate.
-    ///
-    /// Default: 150
-    pub max_tokens: Option<u32>,
-    /// Api URL to use for completions.
-    ///
-    /// Default: "https://codestral.mistral.ai"
-    pub api_url: Option<String>,
-}
-
-/// Ollama model name for edit predictions.
-#[with_fallible_options]
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct OllamaModelName(pub String);
-
-impl AsRef<str> for OllamaModelName {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl From<String> for OllamaModelName {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
-}
-
-impl From<OllamaModelName> for String {
-    fn from(value: OllamaModelName) -> Self {
-        value.0
-    }
-}
-
-#[with_fallible_options]
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq)]
-pub struct OllamaEditPredictionSettingsContent {
-    /// Model to use for completions.
-    ///
-    /// Default: none
-    pub model: Option<OllamaModelName>,
-    /// Maximum tokens to generate for FIM models.
-    ///
-    /// Default: 256
-    pub max_output_tokens: Option<u32>,
-    /// Api URL to use for completions.
-    ///
-    /// Default: "http://localhost:11434"
-    pub api_url: Option<String>,
-
-    /// The prompt format to use for completions. Set to `""` to have the format be derived from the model name.
-    ///
-    /// Default: ""
-    pub prompt_format: Option<EditPredictionPromptFormat>,
-}
-
-/// Controls whether Zed collects training data when using Zed's Edit Predictions.
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    Eq,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum EditPredictionDataCollectionChoice {
-    /// Use the preference previously set via the status-bar toggle, or false
-    /// if no preference has been stored.
-    #[default]
-    Default,
-    /// Allow Zed to collect training data from open-source projects.
-    Yes,
-    /// Never allow training data collection.
-    No,
-}
-
-/// The mode in which edit predictions should be displayed.
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    Eq,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum EditPredictionsMode {
-    /// If provider supports it, display inline when holding modifier key (e.g., alt).
-    /// Otherwise, eager preview is used.
-    #[serde(alias = "auto")]
-    Subtle,
-    /// Display inline when there are no language server completions available.
-    #[default]
-    #[serde(alias = "eager_preview")]
-    Eager,
 }
 
 /// Controls the soft-wrapping behavior in the editor.
@@ -492,23 +203,6 @@ pub struct LanguageSettingsContent {
     ///
     /// Default: "off"
     pub semantic_tokens: Option<SemanticTokens>,
-    /// Controls whether folding ranges from language servers are used instead of
-    /// tree-sitter and indent-based folding.
-    ///
-    /// Options:
-    /// - "off": Use tree-sitter and indent-based folding (default).
-    /// - "on": Use LSP folding wherever possible, falling back to tree-sitter and indent-based folding when no results were returned by the server.
-    ///
-    /// Default: "off"
-    pub document_folding_ranges: Option<DocumentFoldingRanges>,
-    /// Controls the source of document symbols used for outlines and breadcrumbs.
-    ///
-    /// Options:
-    /// - "off": Use tree-sitter queries to compute document symbols (default).
-    /// - "on": Use the language server's `textDocument/documentSymbol` LSP response. When enabled, tree-sitter is not used for document symbols.
-    ///
-    /// Default: "off"
-    pub document_symbols: Option<DocumentSymbols>,
     /// Controls where the `editor::Rewrap` action is allowed for this language.
     ///
     /// Note: This setting has no effect in Vim mode, as rewrap is already
@@ -516,18 +210,6 @@ pub struct LanguageSettingsContent {
     ///
     /// Default: "in_comments"
     pub allow_rewrap: Option<RewrapBehavior>,
-    /// Controls whether edit predictions are shown immediately (true)
-    /// or manually by triggering `editor::ShowEditPrediction` (false).
-    ///
-    /// Default: true
-    pub show_edit_predictions: Option<bool>,
-    /// Controls whether edit predictions are shown in the given language
-    /// scopes.
-    ///
-    /// Example: ["string", "comment"]
-    ///
-    /// Default: []
-    pub edit_predictions_disabled_in: Option<Vec<String>>,
     /// Whether to show tabs and spaces in the editor.
     pub show_whitespaces: Option<ShowWhitespaceSetting>,
     /// Visible characters used to render whitespace when show_whitespaces is enabled.
@@ -546,8 +228,6 @@ pub struct LanguageSettingsContent {
     ///
     /// Default: true
     pub indent_list_on_tab: Option<bool>,
-    /// Inlay hint related settings.
-    pub inlay_hints: Option<InlayHintSettingsContent>,
     /// Whether to automatically type closing characters for you. For example,
     /// when you type '(', Zed will automatically add a closing ')' at the correct position.
     ///
@@ -593,10 +273,6 @@ pub struct LanguageSettingsContent {
     ///
     /// Default: true
     pub auto_indent_on_paste: Option<bool>,
-    /// Task configuration for this language.
-    ///
-    /// Default: {}
-    pub tasks: Option<LanguageTaskSettingsContent>,
     /// Whether to pop the completions menu while typing in an editor without
     /// explicitly requesting it.
     ///
@@ -609,10 +285,6 @@ pub struct LanguageSettingsContent {
     pub show_completion_documentation: Option<bool>,
     /// Controls how completions are processed for this language.
     pub completions: Option<CompletionSettingsContent>,
-    /// Preferred debuggers for this language.
-    ///
-    /// Default: []
-    pub debuggers: Option<Vec<String>>,
     /// Whether to enable word diff highlighting in the editor.
     ///
     /// When enabled, changed words within modified lines are highlighted
@@ -696,88 +368,6 @@ pub enum RewrapBehavior {
 pub struct JsxTagAutoCloseSettingsContent {
     /// Enables or disables auto-closing of JSX tags.
     pub enabled: Option<bool>,
-}
-
-/// The settings for inlay hints.
-#[with_fallible_options]
-#[derive(Clone, Default, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq, Eq)]
-pub struct InlayHintSettingsContent {
-    /// Global switch to toggle hints on and off.
-    ///
-    /// Default: false
-    pub enabled: Option<bool>,
-    /// Global switch to toggle inline values on and off when debugging.
-    ///
-    /// Default: true
-    pub show_value_hints: Option<bool>,
-    /// Whether type hints should be shown.
-    ///
-    /// Default: true
-    pub show_type_hints: Option<bool>,
-    /// Whether parameter hints should be shown.
-    ///
-    /// Default: true
-    pub show_parameter_hints: Option<bool>,
-    /// Whether other hints should be shown.
-    ///
-    /// Default: true
-    pub show_other_hints: Option<bool>,
-    /// Whether to show a background for inlay hints.
-    ///
-    /// If set to `true`, the background will use the `hint.background` color
-    /// from the current theme.
-    ///
-    /// Default: false
-    pub show_background: Option<bool>,
-    /// Whether or not to debounce inlay hints updates after buffer edits.
-    ///
-    /// Set to 0 to disable debouncing.
-    ///
-    /// Default: 700
-    pub edit_debounce_ms: Option<u64>,
-    /// Whether or not to debounce inlay hints updates after buffer scrolls.
-    ///
-    /// Set to 0 to disable debouncing.
-    ///
-    /// Default: 50
-    pub scroll_debounce_ms: Option<u64>,
-    /// Toggles inlay hints (hides or shows) when the user presses the modifiers specified.
-    /// If only a subset of the modifiers specified is pressed, hints are not toggled.
-    /// If no modifiers are specified, this is equivalent to `null`.
-    ///
-    /// Default: null
-    pub toggle_on_modifiers_press: Option<ModifiersContent>,
-}
-
-/// The kind of an inlay hint.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum InlayHintKind {
-    /// An inlay hint for a type.
-    Type,
-    /// An inlay hint for a parameter.
-    Parameter,
-}
-
-impl InlayHintKind {
-    /// Returns the [`InlayHintKind`]fromthe given name.
-    ///
-    /// Returns `None` if `name` does not match any of the expected
-    /// string representations.
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "type" => Some(InlayHintKind::Type),
-            "parameter" => Some(InlayHintKind::Parameter),
-            _ => None,
-        }
-    }
-
-    /// Returns the name of this [`InlayHintKind`].
-    pub fn name(&self) -> &'static str {
-        match self {
-            InlayHintKind::Type => "type",
-            InlayHintKind::Parameter => "parameter",
-        }
-    }
 }
 
 /// Controls how completions are processed for this language.
@@ -1081,23 +671,6 @@ pub struct IndentGuideSettingsContent {
     ///
     /// Default: Disabled
     pub background_coloring: Option<IndentGuideBackgroundColoring>,
-}
-
-/// The task settings for a particular language.
-#[with_fallible_options]
-#[derive(Debug, Clone, Default, Deserialize, PartialEq, Serialize, JsonSchema, MergeFrom)]
-pub struct LanguageTaskSettingsContent {
-    /// Extra task variables to set for a particular language.
-    pub variables: Option<HashMap<String, String>>,
-    pub enabled: Option<bool>,
-    /// Use LSP tasks over Zed language extension ones.
-    /// If no LSP tasks are returned due to error/timeout or regular execution,
-    /// Zed language extension tasks will be used instead.
-    ///
-    /// Other Zed tasks will still be shown:
-    /// * Zed task from either of the task config file
-    /// * Zed task from history (e.g. one-off task was spawned before)
-    pub prefer_lsp: Option<bool>,
 }
 
 /// Map from language name to settings.

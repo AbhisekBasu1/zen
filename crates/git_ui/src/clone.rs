@@ -1,9 +1,8 @@
 use gpui::{App, Context, WeakEntity, Window};
-use notifications::status_toast::StatusToast;
 use std::sync::Arc;
 use ui::{Color, Icon, IconName, IconSize, SharedString};
 use util::ResultExt;
-use workspace::{self, Workspace};
+use workspace::{self, Workspace, notifications::status_toast::StatusToast};
 
 pub fn clone_and_open(
     repo_url: SharedString,

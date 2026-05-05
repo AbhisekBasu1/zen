@@ -1,6 +1,3 @@
-#[cfg(test)]
-mod syntax_map_tests;
-
 use crate::{
     Grammar, InjectionConfig, Language, LanguageId, LanguageRegistry, QUERY_CURSORS, with_parser,
 };

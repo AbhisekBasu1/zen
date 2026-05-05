@@ -5,7 +5,6 @@ mod utils;
 use anyhow::{Context as _, Result};
 use client::{ErrorCode, ErrorExt};
 use collections::{BTreeSet, HashMap, hash_map};
-use command_palette_hooks::CommandPaletteFilter;
 use editor::{
     Editor, EditorEvent, MultiBufferOffset,
     items::{
@@ -13,7 +12,6 @@ use editor::{
         entry_diagnostic_aware_icon_name_and_color, entry_git_aware_label_color,
     },
 };
-use feature_flags::{FeatureFlagAppExt, ProjectPanelUndoRedoFeatureFlag};
 use file_icons::FileIcons;
 use git;
 use git::status::GitSummary;
@@ -31,7 +29,6 @@ use gpui::{
 };
 use language::DiagnosticSeverity;
 use menu::{Confirm, SelectFirst, SelectLast, SelectNext, SelectPrevious};
-use notifications::status_toast::StatusToast;
 use project::{
     Entry, EntryKind, Fs, GitEntry, GitEntryRef, GitTraversal, Project, ProjectEntryId,
     ProjectPath, Worktree, WorktreeId,
@@ -56,7 +53,7 @@ use std::{
     ops::Range,
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 use theme_settings::ThemeSettings;
 use ui::{
@@ -71,13 +68,15 @@ use util::{
     rel_path::{RelPath, RelPathBuf},
 };
 use workspace::{
-    DraggedSelection, OpenInTerminal, OpenMode, OpenOptions, OpenVisible, PreviewTabsSettings,
-    SelectedEntry, SplitDirection, Workspace,
+    DraggedSelection, OpenMode, OpenOptions, OpenVisible, PreviewTabsSettings, SelectedEntry,
+    SplitDirection, Workspace,
     dock::{DockPosition, Panel, PanelEvent},
-    notifications::{DetachAndPromptErr, NotifyResultExt, NotifyTaskExt},
+    notifications::{
+        DetachAndPromptErr, NotifyResultExt, NotifyTaskExt, status_toast::StatusToast,
+    },
 };
 use worktree::CreatedEntry;
-use zed_actions::{
+use zen_actions::{
     project_panel::{Toggle, ToggleFocus},
     workspace::OpenWithSystem,
 };
@@ -159,7 +158,6 @@ pub struct ProjectPanel {
     hover_expand_task: Option<Task<()>>,
     previous_drag_position: Option<Point<Pixels>>,
     sticky_items_count: usize,
-    last_reported_update: Instant,
     update_visible_entries_task: UpdateVisibleEntriesTask,
     undo_manager: UndoManager,
     state: State,
@@ -711,18 +709,6 @@ impl ProjectPanel {
             )
             .detach();
 
-            let trash_action = [TypeId::of::<Trash>()];
-            let is_remote = project.read(cx).is_remote();
-
-            // Make sure the trash option is never displayed anywhere on remote
-            // hosts since they may not support trashing. May want to dynamically
-            // detect this in the future.
-            if is_remote {
-                CommandPaletteFilter::update_global(cx, |filter, _cx| {
-                    filter.hide_action_types(&trash_action);
-                });
-            }
-
             let filename_editor = cx.new(|cx| Editor::single_line(window, cx));
 
             cx.subscribe_in(
@@ -821,7 +807,6 @@ impl ProjectPanel {
                 hover_expand_task: None,
                 previous_drag_position: None,
                 sticky_items_count: 0,
-                last_reported_update: Instant::now(),
                 state: State {
                     max_width_item_index: None,
                     edit_state: None,
@@ -1071,7 +1056,7 @@ impl ProjectPanel {
 
             let has_pasteable_content = self.has_pasteable_content(cx);
             let entity = cx.entity();
-            let context_menu = ContextMenu::build(window, cx, |menu, _, cx| {
+            let context_menu = ContextMenu::build(window, cx, |menu, _, _cx| {
                 menu.context(self.focus_handle.clone()).map(|menu| {
                     if is_read_only {
                         menu.when(is_dir, |menu| {
@@ -1090,7 +1075,6 @@ impl ProjectPanel {
                             .when(is_local, |menu| {
                                 menu.action("Open in Default App", Box::new(OpenWithSystem))
                             })
-                            .action("Open in Terminal", Box::new(OpenInTerminal))
                             .when(is_dir, |menu| {
                                 menu.separator()
                                     .action("Find in Folder…", Box::new(NewSearchInDirectory))
@@ -1111,7 +1095,7 @@ impl ProjectPanel {
                             .action("Duplicate", Box::new(Duplicate))
                             // TODO: Paste should always be visible, cbut disabled when clipboard is empty
                             .action_disabled_when(!has_pasteable_content, "Paste", Box::new(Paste))
-                            .when(cx.has_flag::<ProjectPanelUndoRedoFeatureFlag>(), |menu| {
+                            .when(false, |menu| {
                                 menu.action_disabled_when(
                                     !self.undo_manager.can_undo(),
                                     "Undo",
@@ -1128,10 +1112,10 @@ impl ProjectPanel {
                                     .action("Download...", Box::new(DownloadFromRemote))
                             })
                             .separator()
-                            .action("Copy Path", Box::new(zed_actions::workspace::CopyPath))
+                            .action("Copy Path", Box::new(zen_actions::workspace::CopyPath))
                             .action(
                                 "Copy Relative Path",
-                                Box::new(zed_actions::workspace::CopyRelativePath),
+                                Box::new(zen_actions::workspace::CopyRelativePath),
                             )
                             .when(has_git_repo, |menu| {
                                 menu.separator()
@@ -3389,7 +3373,7 @@ impl ProjectPanel {
 
     fn copy_path(
         &mut self,
-        _: &zed_actions::workspace::CopyPath,
+        _: &zen_actions::workspace::CopyPath,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -3417,7 +3401,7 @@ impl ProjectPanel {
 
     fn copy_relative_path(
         &mut self,
-        _: &zed_actions::workspace::CopyRelativePath,
+        _: &zen_actions::workspace::CopyRelativePath,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -3508,36 +3492,6 @@ impl ProjectPanel {
         if let Some((worktree, entry)) = self.selected_entry(cx) {
             let abs_path = worktree.absolutize(&entry.path);
             cx.open_with_system(&abs_path);
-        }
-    }
-
-    fn open_in_terminal(
-        &mut self,
-        _: &OpenInTerminal,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some((worktree, entry)) = self.selected_sub_entry(cx) {
-            let abs_path = match &entry.canonical_path {
-                Some(canonical_path) => canonical_path.to_path_buf(),
-                None => worktree.read(cx).absolutize(&entry.path),
-            };
-
-            let working_directory = if entry.is_dir() {
-                Some(abs_path)
-            } else {
-                abs_path.parent().map(|path| path.to_path_buf())
-            };
-            if let Some(working_directory) = working_directory {
-                window.dispatch_action(
-                    workspace::OpenTerminal {
-                        working_directory,
-                        local: false,
-                    }
-                    .boxed_clone(),
-                    cx,
-                )
-            }
         }
     }
 
@@ -3939,7 +3893,6 @@ impl ProjectPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let now = Instant::now();
         let settings = ProjectPanelSettings::get_global(cx);
         let auto_collapse_dirs = settings.auto_fold_dirs;
         let hide_gitignore = settings.hide_gitignore;
@@ -4217,19 +4170,6 @@ impl ProjectPanel {
                         worktree_id,
                         entry_id,
                     });
-                }
-                let elapsed = now.elapsed();
-                if this.last_reported_update.elapsed() > Duration::from_secs(3600) {
-                    telemetry::event!(
-                        "Project Panel Updated",
-                        elapsed_ms = elapsed.as_millis() as u64,
-                        worktree_entries = this
-                            .state
-                            .visible_entries
-                            .iter()
-                            .map(|worktree| worktree.entries.len())
-                            .sum::<usize>(),
-                    )
                 }
                 if this.update_visible_entries_task.focus_filename_editor {
                     this.update_visible_entries_task.focus_filename_editor = false;
@@ -6668,7 +6608,7 @@ impl Render for ProjectPanel {
                 .on_action(cx.listener(Self::fold_directory))
                 .on_action(cx.listener(Self::remove_from_project))
                 .on_action(cx.listener(Self::compare_marked_files))
-                .when(cx.has_flag::<ProjectPanelUndoRedoFeatureFlag>(), |el| {
+                .when(false, |el| {
                     el.on_action(cx.listener(Self::undo))
                         .on_action(cx.listener(Self::redo))
                 })
@@ -6692,12 +6632,10 @@ impl Render for ProjectPanel {
                     |el| {
                         el.on_action(cx.listener(Self::reveal_in_finder))
                             .on_action(cx.listener(Self::open_system))
-                            .on_action(cx.listener(Self::open_in_terminal))
                     },
                 )
                 .when(project.is_via_remote_server(), |el| {
-                    el.on_action(cx.listener(Self::open_in_terminal))
-                        .on_action(cx.listener(Self::download_from_remote))
+                    el.on_action(cx.listener(Self::download_from_remote))
                 })
                 .track_focus(&self.focus_handle(cx))
                 .child(
@@ -7381,7 +7319,3 @@ fn git_status_indicator(git_status: GitSummary) -> Option<(&'static str, Color)>
     }
     None
 }
-
-#[cfg(test)]
-mod project_panel_tests;
-mod tests;

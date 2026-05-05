@@ -217,7 +217,6 @@ pub struct ScrollManager {
     visible_line_count: Option<f64>,
     visible_column_count: Option<f64>,
     forbid_vertical_scroll: bool,
-    minimap_thumb_state: Option<ScrollbarThumbState>,
     _save_scroll_position_task: Task<()>,
 }
 
@@ -240,7 +239,6 @@ impl ScrollManager {
             visible_line_count: None,
             visible_column_count: None,
             forbid_vertical_scroll: false,
-            minimap_thumb_state: None,
             _save_scroll_position_task: Task::ready(()),
         }
     }
@@ -564,45 +562,6 @@ impl ScrollManager {
         }
     }
 
-    pub fn set_is_hovering_minimap_thumb(&mut self, hovered: bool, cx: &mut Context<Editor>) {
-        self.update_minimap_thumb_state(
-            Some(if hovered {
-                ScrollbarThumbState::Hovered
-            } else {
-                ScrollbarThumbState::Idle
-            }),
-            cx,
-        );
-    }
-
-    pub fn set_is_dragging_minimap(&mut self, cx: &mut Context<Editor>) {
-        self.update_minimap_thumb_state(Some(ScrollbarThumbState::Dragging), cx);
-    }
-
-    pub fn hide_minimap_thumb(&mut self, cx: &mut Context<Editor>) {
-        self.update_minimap_thumb_state(None, cx);
-    }
-
-    pub fn is_dragging_minimap(&self) -> bool {
-        self.minimap_thumb_state
-            .is_some_and(|state| state == ScrollbarThumbState::Dragging)
-    }
-
-    fn update_minimap_thumb_state(
-        &mut self,
-        thumb_state: Option<ScrollbarThumbState>,
-        cx: &mut Context<Editor>,
-    ) {
-        if self.minimap_thumb_state != thumb_state {
-            self.minimap_thumb_state = thumb_state;
-            cx.notify();
-        }
-    }
-
-    pub fn minimap_thumb_state(&self) -> Option<ScrollbarThumbState> {
-        self.minimap_thumb_state
-    }
-
     pub fn clamp_scroll_left(&mut self, max: f64, cx: &App) -> bool {
         let current_x = self.anchor.read(cx).scroll_anchor.offset.x;
         self.scroll_max_x = Some(max);
@@ -629,8 +588,7 @@ impl Editor {
 
     pub(crate) fn scroll_beyond_last_line(&self, cx: &App) -> ScrollBeyondLastLine {
         match self.mode {
-            EditorMode::Minimap { .. }
-            | EditorMode::Full {
+            EditorMode::Full {
                 sizing_behavior: SizingBehavior::Default,
                 ..
             } => EditorSettings::get_global(cx).scroll_beyond_last_line,
@@ -759,9 +717,6 @@ impl Editor {
     ) -> WasScrolled {
         hide_hover(self, cx);
         let workspace_id = self.workspace.as_ref().and_then(|workspace| workspace.1);
-
-        self.edit_prediction_preview
-            .set_previous_scroll_position(None);
 
         let adjusted_position = if self.scroll_manager.forbid_vertical_scroll {
             let current_position = self.scroll_manager.scroll_position(&display_map, cx);

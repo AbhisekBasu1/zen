@@ -34,13 +34,11 @@ pub struct Grammar {
     pub highlights_config: Option<HighlightsConfig>,
     pub brackets_config: Option<BracketsConfig>,
     pub redactions_config: Option<RedactionConfig>,
-    pub runnable_config: Option<RunnableConfig>,
     pub indents_config: Option<IndentConfig>,
     pub outline_config: Option<OutlineConfig>,
     pub text_object_config: Option<TextObjectConfig>,
     pub injection_config: Option<InjectionConfig>,
     pub override_config: Option<OverrideConfig>,
-    pub debug_variables_config: Option<DebugVariablesConfig>,
     pub highlight_map: Mutex<HighlightMap>,
 }
 
@@ -67,22 +65,6 @@ pub struct OutlineConfig {
     pub open_capture_ix: Option<u32>,
     pub close_capture_ix: Option<u32>,
     pub annotation_capture_ix: Option<u32>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DebuggerTextObject {
-    Variable,
-    Scope,
-}
-
-impl DebuggerTextObject {
-    pub fn from_capture_name(name: &str) -> Option<DebuggerTextObject> {
-        match name {
-            "debug-variable" => Some(DebuggerTextObject::Variable),
-            "debug-scope" => Some(DebuggerTextObject::Scope),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -135,18 +117,6 @@ pub struct RedactionConfig {
     pub redaction_capture_ix: u32,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum RunnableCapture {
-    Named(SharedString),
-    Run,
-}
-
-pub struct RunnableConfig {
-    pub query: Query,
-    /// A mapping from capture index to capture kind
-    pub extra_captures: Vec<RunnableCapture>,
-}
-
 pub struct OverrideConfig {
     pub query: Query,
     pub values: HashMap<u32, OverrideEntry>,
@@ -177,11 +147,6 @@ pub struct BracketsConfig {
 pub struct BracketsPatternConfig {
     pub newline_only: bool,
     pub rainbow_exclude: bool,
-}
-
-pub struct DebugVariablesConfig {
-    pub query: Query,
-    pub objects_by_capture_ix: Vec<(u32, DebuggerTextObject)>,
 }
 
 enum Capture<'a> {
@@ -258,9 +223,7 @@ impl Grammar {
             injection_config: None,
             override_config: None,
             redactions_config: None,
-            runnable_config: None,
             error_query: Query::new(&ts_language, "(ERROR) @error").ok(),
-            debug_variables_config: None,
             ts_language,
             highlight_map: Default::default(),
         }
@@ -280,10 +243,6 @@ impl Grammar {
             .query
             .capture_index_for_name(name)
             .and_then(|capture_id| self.highlight_map.lock().get(capture_id))
-    }
-
-    pub fn debug_variables_config(&self) -> Option<&DebugVariablesConfig> {
-        self.debug_variables_config.as_ref()
     }
 
     /// Load all queries from `LanguageQueries` into this grammar, mutating the
@@ -336,20 +295,10 @@ impl Grammar {
                 .with_redaction_query(query.as_ref(), name)
                 .context("Error loading redaction query")?;
         }
-        if let Some(query) = queries.runnables {
-            self = self
-                .with_runnable_query(query.as_ref())
-                .context("Error loading runnables query")?;
-        }
         if let Some(query) = queries.text_objects {
             self = self
                 .with_text_object_query(query.as_ref(), name)
                 .context("Error loading textobject query")?;
-        }
-        if let Some(query) = queries.debugger {
-            self = self
-                .with_debug_variables_query(query.as_ref(), name)
-                .context("Error loading debug variables query")?;
         }
         Ok(self)
     }
@@ -376,25 +325,6 @@ impl Grammar {
         self.highlights_config = Some(HighlightsConfig {
             query,
             identifier_capture_indices,
-        });
-
-        Ok(self)
-    }
-
-    pub fn with_runnable_query(mut self, source: &str) -> Result<Self> {
-        let query = Query::new(&self.ts_language, source)?;
-        let extra_captures: Vec<_> = query
-            .capture_names()
-            .iter()
-            .map(|&name| match name {
-                "run" => RunnableCapture::Run,
-                name => RunnableCapture::Named(name.to_string().into()),
-            })
-            .collect();
-
-        self.runnable_config = Some(RunnableConfig {
-            extra_captures,
-            query,
         });
 
         Ok(self)
@@ -465,33 +395,6 @@ impl Grammar {
         self.text_object_config = Some(TextObjectConfig {
             query,
             text_objects_by_capture_ix,
-        });
-        Ok(self)
-    }
-
-    pub fn with_debug_variables_query(
-        mut self,
-        source: &str,
-        language_name: &LanguageName,
-    ) -> Result<Self> {
-        let query = Query::new(&self.ts_language, source)?;
-
-        let mut objects_by_capture_ix = Vec::new();
-        for (ix, name) in query.capture_names().iter().enumerate() {
-            if let Some(text_object) = DebuggerTextObject::from_capture_name(name) {
-                objects_by_capture_ix.push((ix as u32, text_object));
-            } else {
-                log::warn!(
-                    "unrecognized capture name '{}' in {} debugger TreeSitter query",
-                    name,
-                    language_name,
-                );
-            }
-        }
-
-        self.debug_variables_config = Some(DebugVariablesConfig {
-            query,
-            objects_by_capture_ix,
         });
         Ok(self)
     }

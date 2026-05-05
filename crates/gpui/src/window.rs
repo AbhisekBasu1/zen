@@ -2479,7 +2479,6 @@ impl Window {
 
     /// Produces a new frame and assigns it to `rendered_frame`. To actually show
     /// the contents of the new [`Scene`], use [`Self::present`].
-    #[profiling::function]
     pub fn draw(&mut self, cx: &mut App) -> ArenaClearNeeded {
         // Set up the per-App arena for element allocation during this draw.
         // This ensures that multiple test Apps have isolated arenas.
@@ -2577,13 +2576,11 @@ impl Window {
         self.invalidator.replace_views(views);
     }
 
-    #[profiling::function]
     fn present(&mut self) {
         self.platform_window.draw(&self.rendered_frame.scene);
         #[cfg(feature = "input-latency-histogram")]
         self.input_latency_tracker.record_frame_presented();
         self.needs_present.set(false);
-        profiling::finish_frame!();
     }
 
     /// Returns a snapshot of the current input-latency histograms.
@@ -4244,7 +4241,6 @@ impl Window {
     }
 
     /// Dispatch a mouse or keyboard event on the window.
-    #[profiling::function]
     pub fn dispatch_event(&mut self, event: PlatformInput, cx: &mut App) -> DispatchEventResult {
         #[cfg(feature = "input-latency-histogram")]
         let dispatch_time = Instant::now();

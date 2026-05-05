@@ -23,15 +23,15 @@ use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::ffi::OsStrExt;
 
 #[cfg(unix)]
-use std::os::unix::fs::{FileTypeExt, MetadataExt};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 
 #[cfg(any(target_os = "macos", target_os = "freebsd"))]
 use std::mem::MaybeUninit;
 
+#[cfg(feature = "tar-extract")]
 use async_tar::Archive;
 use futures::{AsyncRead, Stream, StreamExt, future::BoxFuture};
 use git::repository::{GitRepository, RealGitRepository};
-use is_executable::IsExecutable;
 use rope::Rope;
 use serde::{Deserialize, Serialize};
 use smol::io::AsyncWriteExt;
@@ -228,6 +228,7 @@ pub trait Fs: Send + Sync {
         path: &Path,
         content: Pin<&mut (dyn AsyncRead + Send)>,
     ) -> Result<()>;
+    #[cfg(feature = "tar-extract")]
     async fn extract_tar_file(
         &self,
         path: &Path,
@@ -241,7 +242,7 @@ pub trait Fs: Send + Sync {
     /// system trash.
     async fn remove_dir(&self, path: &Path, options: RemoveOptions) -> Result<()>;
 
-    /// Moves a file or directory to the system trash.
+    /// Moves a file or directory to this build's app-local trash.
     /// Returns a [`TrashedEntry`] that can be used to keep track of the
     /// location of the trashed item in the system's trash.
     async fn trash(&self, path: &Path, options: RemoveOptions) -> Result<TrashedEntry>;
@@ -292,7 +293,7 @@ pub trait Fs: Send + Sync {
     async fn is_case_sensitive(&self) -> bool;
     fn subscribe_to_jobs(&self) -> JobEventReceiver;
 
-    /// Restores a given `TrashedEntry`, moving it from the system's trash back
+    /// Restores a given `TrashedEntry`, moving it from the app-local trash back
     /// to the original path.
     async fn restore(
         &self,
@@ -305,18 +306,11 @@ pub trait Fs: Send + Sync {
     }
 }
 
-// We use our own type rather than `trash::TrashItem` directly to avoid carrying
-// over fields we don't need (e.g. `time_deleted`) and to insulate callers and
-// tests from changes to that crate's API surface.
-/// Represents a file or directory that has been moved to the system trash,
+/// Represents a file or directory that has been moved to the app-local trash,
 /// retaining enough information to restore it to its original location.
 #[derive(Clone, PartialEq, Debug)]
 pub struct TrashedEntry {
-    /// Platform-specific identifier for the file/directory in the trash.
-    ///
-    /// * Freedesktop – Path to the `.trashinfo` file.
-    /// * macOS & Windows – Full path to the file/directory in the system's
-    /// trash.
+    /// Full path to the file/directory in the app-local trash.
     pub id: OsString,
     /// Name of the file/directory at the time of trashing, including extension.
     pub name: OsString,
@@ -324,49 +318,14 @@ pub struct TrashedEntry {
     pub original_parent: PathBuf,
 }
 
-impl From<trash::TrashItem> for TrashedEntry {
-    fn from(item: trash::TrashItem) -> Self {
-        Self {
-            id: item.id,
-            name: item.name,
-            original_parent: item.original_parent,
-        }
-    }
-}
-
-impl TrashedEntry {
-    fn into_trash_item(self) -> trash::TrashItem {
-        trash::TrashItem {
-            id: self.id,
-            name: self.name,
-            original_parent: self.original_parent,
-            // `TrashedEntry` doesn't preserve `time_deleted` as we don't
-            // currently need it for restore, so we default it to 0 here.
-            time_deleted: 0,
-        }
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum TrashRestoreError {
-    #[error("The specified `path` ({}) was not found in the system's trash.", path.display())]
+    #[error("The specified `path` ({}) was not found in the app-local trash.", path.display())]
     NotFound { path: PathBuf },
     #[error("File or directory ({}) already exists at the restore destination.", path.display())]
     Collision { path: PathBuf },
     #[error("Unknown error ({description})")]
     Unknown { description: String },
-}
-
-impl From<trash::Error> for TrashRestoreError {
-    fn from(err: trash::Error) -> Self {
-        match err {
-            trash::Error::RestoreCollision { path, .. } => Self::Collision { path },
-            trash::Error::Unknown { description } => Self::Unknown { description },
-            other => Self::Unknown {
-                description: other.to_string(),
-            },
-        }
-    }
 }
 
 struct GlobalFs(Arc<dyn Fs>);
@@ -795,6 +754,7 @@ impl Fs for RealFs {
         Ok(())
     }
 
+    #[cfg(feature = "tar-extract")]
     async fn extract_tar_file(
         &self,
         path: &Path,
@@ -924,25 +884,45 @@ impl Fs for RealFs {
     }
 
     async fn trash(&self, path: &Path, _options: RemoveOptions) -> Result<TrashedEntry> {
-        // We must make the path absolute or trash will make a weird abomination
-        // of the zed working directory (not usually the worktree) and whatever
-        // the path variable holds.
         let path = self
             .canonicalize(path)
             .await
             .context("Could not canonicalize the path of the file")?;
+        let name = path
+            .file_name()
+            .context("Could not determine the name of the file to trash")?
+            .to_os_string();
+        let original_parent = path
+            .parent()
+            .context("Could not determine the parent of the file to trash")?
+            .to_path_buf();
 
-        let (tx, rx) = futures::channel::oneshot::channel();
-        std::thread::Builder::new()
-            .name("trash file or dir".to_string())
-            .spawn(|| tx.send(trash::delete_with_info(path)))
-            .expect("The os can spawn threads");
-
-        Ok(rx
+        let trash_dir = paths::temp_dir().join("trash");
+        smol::fs::create_dir_all(&trash_dir)
             .await
-            .context("Tx dropped or fs.restore panicked")?
-            .context("Could not trash file or dir")?
-            .into())
+            .with_context(|| format!("Could not create trash dir {}", trash_dir.display()))?;
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let id = self.next_job_id.fetch_add(1, Ordering::Relaxed);
+        let trash_path = trash_dir.join(format!("{}-{timestamp}-{id}", std::process::id()));
+        smol::fs::rename(&path, &trash_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "Could not move {} to app-local trash {}",
+                    path.display(),
+                    trash_path.display()
+                )
+            })?;
+
+        Ok(TrashedEntry {
+            id: trash_path.into_os_string(),
+            name,
+            original_parent,
+        })
     }
 
     async fn open_sync(&self, path: &Path) -> Result<Box<dyn io::Read + Send + Sync>> {
@@ -1143,11 +1123,30 @@ impl Fs for RealFs {
         #[cfg(unix)]
         let is_fifo = metadata.file_type().is_fifo();
 
-        let path_buf = path.to_path_buf();
-        let is_executable = self
-            .executor
-            .spawn(async move { path_buf.is_executable() })
-            .await;
+        #[cfg(unix)]
+        let is_executable = metadata.permissions().mode() & 0o111 != 0;
+
+        #[cfg(windows)]
+        let is_executable = metadata.is_file()
+            && path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    let extension = format!(".{}", extension).to_ascii_uppercase();
+                    std::env::var("PATHEXT")
+                        .map(|pathext| {
+                            pathext
+                                .to_ascii_uppercase()
+                                .split(';')
+                                .any(|candidate| candidate == extension)
+                        })
+                        .unwrap_or_else(|_| {
+                            matches!(extension.as_str(), ".COM" | ".EXE" | ".BAT" | ".CMD")
+                        })
+                });
+
+        #[cfg(not(any(unix, windows)))]
+        let is_executable = false;
 
         Ok(Some(Metadata {
             inode,
@@ -1209,7 +1208,6 @@ impl Fs for RealFs {
                 fs_watcher::poll_interval().as_millis(),
                 path.display()
             );
-            telemetry::event!("fs_watcher_poll", path = path.display().to_string());
             fs_watcher::WatcherMode::Poll
         } else {
             fs_watcher::WatcherMode::Native
@@ -1429,16 +1427,21 @@ impl Fs for RealFs {
         trashed_entry: TrashedEntry,
     ) -> std::result::Result<PathBuf, TrashRestoreError> {
         let restored_item_path = trashed_entry.original_parent.join(&trashed_entry.name);
+        if restored_item_path.exists() {
+            return Err(TrashRestoreError::Collision {
+                path: restored_item_path,
+            });
+        }
 
-        let (tx, rx) = futures::channel::oneshot::channel();
-        std::thread::Builder::new()
-            .name("restore trashed item".to_string())
-            .spawn(move || {
-                let res = trash::restore_all([trashed_entry.into_trash_item()]);
-                tx.send(res)
-            })
-            .expect("The OS can spawn a threads");
-        rx.await.expect("Restore all never panics")?;
+        let trashed_path = PathBuf::from(trashed_entry.id);
+        smol::fs::rename(&trashed_path, &restored_item_path)
+            .await
+            .map_err(|error| match error.kind() {
+                io::ErrorKind::NotFound => TrashRestoreError::NotFound { path: trashed_path },
+                _ => TrashRestoreError::Unknown {
+                    description: error.to_string(),
+                },
+            })?;
         Ok(restored_item_path)
     }
 }
@@ -2881,6 +2884,7 @@ impl Fs for FakeFs {
         Ok(())
     }
 
+    #[cfg(feature = "tar-extract")]
     async fn extract_tar_file(
         &self,
         path: &Path,

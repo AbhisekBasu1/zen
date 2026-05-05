@@ -9,13 +9,13 @@ license = "GPL-3.0-or-later"
 workspace = true
 
 [features]
-tracy = ["tracing-tracy", "tracy-client"]
+tracy = ["tracing-subscriber", "tracing-tracy", "tracy-client"]
 
 [dependencies]
 zlog.workspace = true
 tracing.workspace = true
 
-tracing-subscriber = "0.3.22"
+tracing-subscriber = { version = "0.3.22", optional = true }
 tracing-tracy = { version = "0.11.4", optional = true, features = ["enable", "ondemand"] }
 tracy-client = { version = "0.18.2", optional = true, features = ["enable", "ondemand"] }
 

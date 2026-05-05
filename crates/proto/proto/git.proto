@@ -314,10 +314,10 @@ message GitCheckoutFiles {
   repeated string paths = 5;
 }
 
-// Move to `git.proto` once collab's min version is >=0.171.0.
+// Kept for wire compatibility with older remote clients.
 message StatusEntry {
   string repo_path = 1;
-  // Can be removed once collab's min version is >=0.171.0.
+  // Can be removed once older remote clients are no longer supported.
   GitStatus simple_status = 2;
   GitFileStatus status = 3;
   optional uint32 diff_stat_added = 4;

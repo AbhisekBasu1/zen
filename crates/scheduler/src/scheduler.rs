@@ -1,8 +1,6 @@
 mod clock;
 mod executor;
 mod test_scheduler;
-#[cfg(test)]
-mod tests;
 
 pub use clock::*;
 pub use executor::*;

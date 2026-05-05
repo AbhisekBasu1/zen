@@ -2134,7 +2134,7 @@ impl Image {
             }
             ImageFormat::Png => frames_for_image(&self.bytes, image::ImageFormat::Png)?,
             ImageFormat::Jpeg => frames_for_image(&self.bytes, image::ImageFormat::Jpeg)?,
-            ImageFormat::Webp => frames_for_image(&self.bytes, image::ImageFormat::WebP)?,
+            ImageFormat::Webp => anyhow::bail!("WebP images are not supported in this build"),
             ImageFormat::Bmp => frames_for_image(&self.bytes, image::ImageFormat::Bmp)?,
             ImageFormat::Tiff => frames_for_image(&self.bytes, image::ImageFormat::Tiff)?,
             ImageFormat::Ico => frames_for_image(&self.bytes, image::ImageFormat::Ico)?,

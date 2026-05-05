@@ -39,7 +39,7 @@ use util::rel_path::RelPath;
 use util::{ResultExt, paths};
 use uuid::Uuid;
 
-pub use askpass::{AskPassDelegate, AskPassResult, AskPassSession};
+pub use crate::{AskPassDelegate, AskPassResult, AskPassSession};
 
 pub const REMOTE_CANCELLED_BY_USER: &str = "Operation cancelled by user";
 
@@ -3665,10 +3665,16 @@ fn parse_upstream_track(upstream_track: &str) -> Result<UpstreamTracking> {
 
 fn checkpoint_author_envs() -> HashMap<String, String> {
     HashMap::from_iter([
-        ("GIT_AUTHOR_NAME".to_string(), "Zed".to_string()),
-        ("GIT_AUTHOR_EMAIL".to_string(), "hi@zed.dev".to_string()),
-        ("GIT_COMMITTER_NAME".to_string(), "Zed".to_string()),
-        ("GIT_COMMITTER_EMAIL".to_string(), "hi@zed.dev".to_string()),
+        ("GIT_AUTHOR_NAME".to_string(), "Zen".to_string()),
+        (
+            "GIT_AUTHOR_EMAIL".to_string(),
+            "noreply@example.dev".to_string(),
+        ),
+        ("GIT_COMMITTER_NAME".to_string(), "Zen".to_string()),
+        (
+            "GIT_COMMITTER_EMAIL".to_string(),
+            "noreply@example.dev".to_string(),
+        ),
     ])
 }
 

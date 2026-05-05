@@ -1,6 +1,6 @@
 use crate::{
     CollaboratorId, DelayedDebouncedEditAction, FollowableViewRegistry, ItemNavHistory,
-    SerializableItemRegistry, ToolbarItemLocation, ViewId, Workspace, WorkspaceId,
+    SerializableItemRegistry, ViewId, Workspace, WorkspaceId,
     invalid_item_view::InvalidItemView,
     pane::{self, Pane},
     persistence::model::ItemId,
@@ -12,11 +12,10 @@ use client::{Client, proto};
 use futures::channel::mpsc;
 use gpui::{
     Action, AnyElement, AnyEntity, AnyView, App, AppContext, Context, Entity, EntityId,
-    EventEmitter, FocusHandle, Focusable, Font, Pixels, Point, Render, SharedString, Task,
-    WeakEntity, Window,
+    EventEmitter, FocusHandle, Focusable, Pixels, Point, Render, SharedString, Task, WeakEntity,
+    Window,
 };
 use language::Capability;
-pub use language::HighlightedText;
 use project::{Project, ProjectEntryId, ProjectPath};
 pub use settings::{
     ActivateOnClose, ClosePosition, RegisterSetting, Settings, SettingsLocation, ShowCloseButton,
@@ -122,7 +121,6 @@ impl Settings for PreviewTabsSettings {
 pub enum ItemEvent {
     CloseItem,
     UpdateTab,
-    UpdateBreadcrumbs,
     Edit,
 }
 
@@ -316,23 +314,6 @@ pub trait Item: Focusable + EventEmitter<Self::Event> + Render + Sized {
     }
 
     fn as_searchable(&self, _: &Entity<Self>, _: &App) -> Option<Box<dyn SearchableItemHandle>> {
-        None
-    }
-
-    fn breadcrumb_location(&self, _: &App) -> ToolbarItemLocation {
-        ToolbarItemLocation::Hidden
-    }
-
-    fn breadcrumbs(&self, _cx: &App) -> Option<(Vec<HighlightedText>, Option<Font>)> {
-        None
-    }
-
-    /// Returns optional elements to render to the left of the breadcrumb.
-    fn breadcrumb_prefix(
-        &self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> Option<gpui::AnyElement> {
         None
     }
 
@@ -541,9 +522,6 @@ pub trait ItemHandle: 'static + Send {
         callback: Box<dyn FnOnce(&mut App) + Send>,
     ) -> gpui::Subscription;
     fn to_searchable_item_handle(&self, cx: &App) -> Option<Box<dyn SearchableItemHandle>>;
-    fn breadcrumb_location(&self, cx: &App) -> ToolbarItemLocation;
-    fn breadcrumbs(&self, cx: &App) -> Option<(Vec<HighlightedText>, Option<Font>)>;
-    fn breadcrumb_prefix(&self, window: &mut Window, cx: &mut App) -> Option<gpui::AnyElement>;
     fn show_toolbar(&self, cx: &App) -> bool;
     fn pixel_position_of_cursor(&self, cx: &App) -> Option<Point<Pixels>>;
     fn downgrade_item(&self) -> Box<dyn WeakItemHandle>;
@@ -833,7 +811,6 @@ impl<T: Item> ItemHandle for Entity<T> {
 
                         if item.item_focus_handle(cx).contains_focused(window, cx) {
                             match leader_id {
-                                Some(CollaboratorId::Agent) => {}
                                 Some(CollaboratorId::PeerId(leader_peer_id)) => {
                                     item.add_event_to_update_proto(
                                         event,
@@ -932,8 +909,6 @@ impl<T: Item> ItemHandle for Entity<T> {
                             }
                             pane.update(cx, |pane, cx| pane.handle_item_edit(item.item_id(), cx));
                         }
-
-                        _ => {}
                     });
                 },
             ));
@@ -1091,18 +1066,6 @@ impl<T: Item> ItemHandle for Entity<T> {
 
     fn to_searchable_item_handle(&self, cx: &App) -> Option<Box<dyn SearchableItemHandle>> {
         self.read(cx).as_searchable(self, cx)
-    }
-
-    fn breadcrumb_location(&self, cx: &App) -> ToolbarItemLocation {
-        self.read(cx).breadcrumb_location(cx)
-    }
-
-    fn breadcrumbs(&self, cx: &App) -> Option<(Vec<HighlightedText>, Option<Font>)> {
-        self.read(cx).breadcrumbs(cx)
-    }
-
-    fn breadcrumb_prefix(&self, window: &mut Window, cx: &mut App) -> Option<gpui::AnyElement> {
-        self.update(cx, |item, cx| item.breadcrumb_prefix(window, cx))
     }
 
     fn show_toolbar(&self, cx: &App) -> bool {
@@ -1273,13 +1236,6 @@ pub trait FollowableItem: Item {
         cx: &mut Context<Self>,
     );
     fn dedup(&self, existing: &Self, window: &Window, cx: &App) -> Option<Dedup>;
-    fn update_agent_location(
-        &mut self,
-        _location: language::Anchor,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
-    }
 }
 
 pub trait FollowableItemHandle: ItemHandle {
@@ -1314,7 +1270,6 @@ pub trait FollowableItemHandle: ItemHandle {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<Dedup>;
-    fn update_agent_location(&self, location: language::Anchor, window: &mut Window, cx: &mut App);
 }
 
 impl<T: FollowableItem> FollowableItemHandle for Entity<T> {
@@ -1383,12 +1338,6 @@ impl<T: FollowableItem> FollowableItemHandle for Entity<T> {
     ) -> Option<Dedup> {
         let existing = existing.to_any_view().downcast::<T>().ok()?;
         self.read(cx).dedup(existing.read(cx), window, cx)
-    }
-
-    fn update_agent_location(&self, location: language::Anchor, window: &mut Window, cx: &mut App) {
-        self.update(cx, |this, cx| {
-            this.update_agent_location(location, window, cx)
-        })
     }
 }
 

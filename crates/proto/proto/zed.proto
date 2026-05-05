@@ -7,7 +7,6 @@ import "buffer.proto";
 import "call.proto";
 import "channel.proto";
 import "core.proto";
-import "debugger.proto";
 import "download.proto";
 import "git.proto";
 import "image.proto";
@@ -112,8 +111,6 @@ message Envelope {
     ApplyCompletionAdditionalEditsResponse apply_completion_additional_edits_response = 76;
     GetCodeActions get_code_actions = 77;
     GetCodeActionsResponse get_code_actions_response = 78;
-    GetHover get_hover = 79;
-    GetHoverResponse get_hover_response = 80;
     ApplyCodeAction apply_code_action = 81;
     ApplyCodeActionResponse apply_code_action_response = 82;
     PrepareRename prepare_rename = 83;
@@ -141,12 +138,6 @@ message Envelope {
     OnTypeFormattingResponse on_type_formatting_response = 106;
 
     UpdateWorktreeSettings update_worktree_settings = 107;
-
-    InlayHints inlay_hints = 108;
-    InlayHintsResponse inlay_hints_response = 109;
-    ResolveInlayHint resolve_inlay_hint = 110;
-    ResolveInlayHintResponse resolve_inlay_hint_response = 111;
-    RefreshInlayHints refresh_inlay_hints = 112;
 
     CreateChannel create_channel = 113;
     CreateChannelResponse create_channel_response = 114;
@@ -217,14 +208,8 @@ message Envelope {
 
     OpenNewBuffer open_new_buffer = 196;
 
-    TaskContextForLocation task_context_for_location = 203;
-    TaskContext task_context = 204;
-
     LinkedEditingRange linked_editing_range = 209;
     LinkedEditingRangeResponse linked_editing_range_response = 210;
-
-    GetSignatureHelp get_signature_help = 217;
-    GetSignatureHelpResponse get_signature_help_response = 218;
 
     ListRemoteDirectory list_remote_directory = 219;
     ListRemoteDirectoryResponse list_remote_directory_response = 220;
@@ -324,14 +309,6 @@ message Envelope {
     GitDiffResponse git_diff_response = 320;
     GitInit git_init = 321;
 
-    CodeLens code_lens = 322;
-    GetCodeLens get_code_lens = 323;
-    GetCodeLensResponse get_code_lens_response = 324;
-    RefreshCodeLens refresh_code_lens = 325;
-
-    ToggleBreakpoint toggle_breakpoint = 326;
-    BreakpointsForFile breakpoints_for_file = 327;
-
     UpdateRepository update_repository = 328;
     RemoveRepository remove_repository = 329;
 
@@ -343,30 +320,15 @@ message Envelope {
 
     StopLanguageServers stop_language_servers = 336;
 
-    LspExtRunnables lsp_ext_runnables = 337;
-    LspExtRunnablesResponse lsp_ext_runnables_response = 338;
-
-    GetDebugAdapterBinary get_debug_adapter_binary = 339;
-    DebugAdapterBinary debug_adapter_binary = 340;
-    RunDebugLocators run_debug_locators = 341;
-    DebugRequest debug_request = 342;
-
     LspExtGoToParentModule lsp_ext_go_to_parent_module = 343;
     LspExtGoToParentModuleResponse lsp_ext_go_to_parent_module_response = 344;
     LspExtCancelFlycheck lsp_ext_cancel_flycheck = 345;
     LspExtRunFlycheck lsp_ext_run_flycheck = 346;
     LspExtClearFlycheck lsp_ext_clear_flycheck = 347;
 
-    LogToDebugConsole log_to_debug_console = 348;
-
     GetDocumentDiagnostics get_document_diagnostics = 350;
     GetDocumentDiagnosticsResponse get_document_diagnostics_response = 351;
     PullWorkspaceDiagnostics pull_workspace_diagnostics = 352;
-
-    GetDocumentColor get_document_color = 353;
-    GetDocumentColorResponse get_document_color_response = 354;
-    GetColorPresentation get_color_presentation = 355;
-    GetColorPresentationResponse get_color_presentation_response = 356;
 
     Stash stash = 357;
     StashPop stash_pop = 358;
@@ -385,9 +347,6 @@ message Envelope {
     ToggleLspLogs toggle_lsp_logs = 367;
 
     UpdateUserSettings update_user_settings = 368;
-
-    GetProcesses get_processes = 369;
-    GetProcessesResponse get_processes_response = 370;
 
     ResolveToolchain resolve_toolchain = 371;
     ResolveToolchainResponse resolve_toolchain_response = 372;

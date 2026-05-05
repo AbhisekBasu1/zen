@@ -103,8 +103,7 @@ impl CursorPosition {
                         cursor_position.selected_count.selections = editor.selections.count();
                         match editor.mode() {
                             editor::EditorMode::AutoHeight { .. }
-                            | editor::EditorMode::SingleLine
-                            | editor::EditorMode::Minimap { .. } => {
+                            | editor::EditorMode::SingleLine => {
                                 cursor_position.position = None;
                                 cursor_position.context = None;
                             }

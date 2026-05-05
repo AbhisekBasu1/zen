@@ -1,6 +1,5 @@
 use crate::LanguageName;
-use collections::{HashMap, HashSet, IndexSet};
-use gpui_shared_string::SharedString;
+use collections::{HashMap, HashSet};
 use lsp::LanguageServerName;
 use regex::Regex;
 use schemars::{JsonSchema, SchemaGenerator, json_schema};
@@ -32,11 +31,6 @@ pub struct LanguageConfig {
     pub name: LanguageName,
     /// The name of this language for a Markdown code fence block
     pub code_fence_block_name: Option<Arc<str>>,
-    /// Alternative language names that Jupyter kernels may report for this language.
-    /// Used when a kernel's `language` field differs from Zed's language name.
-    /// For example, the Nu extension would set this to `["nushell"]`.
-    #[serde(default)]
-    pub kernel_language_names: Vec<Arc<str>>,
     // The name of the grammar in a WASM bundle (experimental).
     pub grammar: Option<Arc<str>>,
     /// The criteria for matching this language to a given file.
@@ -144,9 +138,6 @@ pub struct LanguageConfig {
     /// A list of characters that Zed should treat as word characters for linked edit operations.
     #[serde(default)]
     pub linked_edit_characters: HashSet<char>,
-    /// A list of preferred debuggers for this language.
-    #[serde(default)]
-    pub debuggers: IndexSet<SharedString>,
 }
 
 impl LanguageConfig {
@@ -163,7 +154,6 @@ impl Default for LanguageConfig {
         Self {
             name: LanguageName::new_static(""),
             code_fence_block_name: None,
-            kernel_language_names: Default::default(),
             grammar: None,
             matcher: LanguageMatcher::default(),
             brackets: Default::default(),
@@ -193,7 +183,6 @@ impl Default for LanguageConfig {
             jsx_tag_auto_close: None,
             completion_query_characters: Default::default(),
             linked_edit_characters: Default::default(),
-            debuggers: Default::default(),
         }
     }
 }

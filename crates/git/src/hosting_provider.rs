@@ -8,6 +8,7 @@ use http_client::HttpClient;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use url::Url;
+use util::percent_encode_uri_component;
 
 use crate::repository::RepoPath;
 
@@ -68,7 +69,10 @@ impl<'a> BuildPermalinkParams<'a> {
     pub fn new(sha: &'a str, path: &RepoPath, selection: Option<Range<u32>>) -> Self {
         Self {
             sha,
-            path: path.components().map(urlencoding::encode).join("/"),
+            path: path
+                .components()
+                .map(percent_encode_uri_component)
+                .join("/"),
             selection,
         }
     }

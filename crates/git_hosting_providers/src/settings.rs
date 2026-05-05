@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use git::GitHostingProviderRegistry;
+use git::{GitHostingProvider, GitHostingProviderRegistry};
 use gpui::App;
 use settings::{
     GitHostingProviderConfig, GitHostingProviderKind, RegisterSetting, Settings, SettingsStore,
@@ -8,7 +8,7 @@ use settings::{
 use url::Url;
 use util::ResultExt as _;
 
-use crate::{Bitbucket, Forgejo, Gitea, Github, Gitlab, SourceHut};
+use crate::Github;
 
 pub(crate) fn init(cx: &mut App) {
     init_git_hosting_provider_settings(cx);
@@ -38,20 +38,15 @@ fn update_git_hosting_providers_from_settings(cx: &mut App) {
         .into_iter()
         .chain(local_values)
         .filter_map(|provider| {
+            if provider.provider != GitHostingProviderKind::Github {
+                return None;
+            }
+
             let url = Url::parse(&provider.base_url).log_err()?;
 
-            Some(match provider.provider {
-                GitHostingProviderKind::Bitbucket => {
-                    Arc::new(Bitbucket::new(&provider.name, url)) as _
-                }
-                GitHostingProviderKind::Github => Arc::new(Github::new(&provider.name, url)) as _,
-                GitHostingProviderKind::Gitlab => Arc::new(Gitlab::new(&provider.name, url)) as _,
-                GitHostingProviderKind::Gitea => Arc::new(Gitea::new(&provider.name, url)) as _,
-                GitHostingProviderKind::Forgejo => Arc::new(Forgejo::new(&provider.name, url)) as _,
-                GitHostingProviderKind::SourceHut => {
-                    Arc::new(SourceHut::new(&provider.name, url)) as _
-                }
-            })
+            let provider: Arc<dyn GitHostingProvider + Send + Sync + 'static> =
+                Arc::new(Github::new(&provider.name, url));
+            Some(provider)
         });
 
     provider_registry.set_setting_providers(iter);

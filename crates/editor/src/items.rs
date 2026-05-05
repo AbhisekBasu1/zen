@@ -1,6 +1,6 @@
 use crate::{
-    ActiveDebugLine, Anchor, Autoscroll, BufferSerialization, Capability, Editor, EditorEvent,
-    EditorSettings, ExcerptRange, FormatTarget, MultiBuffer, MultiBufferSnapshot, NavigationData,
+    Anchor, Autoscroll, BufferSerialization, Capability, Editor, EditorEvent, EditorSettings,
+    ExcerptRange, FormatTarget, MultiBuffer, MultiBufferSnapshot, NavigationData,
     ReportEditorEvent, SelectionEffects, ToPoint as _,
     display_map::HighlightKey,
     editor_settings::SeedQuerySetting,
@@ -14,12 +14,12 @@ use fs::MTime;
 use futures::future::try_join_all;
 use git::status::GitSummary;
 use gpui::{
-    AnyElement, App, AsyncWindowContext, Context, Entity, EntityId, EventEmitter, Font,
-    IntoElement, ParentElement, Pixels, SharedString, Styled, Task, WeakEntity, Window, point,
+    AnyElement, App, AsyncWindowContext, Context, Entity, EntityId, EventEmitter, IntoElement,
+    ParentElement, Pixels, SharedString, Styled, Task, WeakEntity, Window, point,
 };
 use language::{
-    Bias, Buffer, BufferRow, CharKind, CharScopeContext, HighlightedText, LocalFile, Point,
-    SelectionGoal, proto::serialize_anchor as serialize_text_anchor,
+    Bias, Buffer, BufferRow, CharKind, CharScopeContext, LocalFile, Point, SelectionGoal,
+    proto::serialize_anchor as serialize_text_anchor,
 };
 use lsp::DiagnosticSeverity;
 use multi_buffer::{MultiBufferOffset, PathKey};
@@ -42,7 +42,7 @@ use ui::{IconDecorationKind, prelude::*};
 use util::{ResultExt, TryFutureExt, paths::PathExt, rel_path::RelPath};
 use workspace::item::{Dedup, ItemSettings, SerializableItem, TabContentParams};
 use workspace::{
-    CollaboratorId, ItemId, ItemNavHistory, ToolbarItemLocation, ViewId, Workspace, WorkspaceId,
+    CollaboratorId, ItemId, ItemNavHistory, ViewId, Workspace, WorkspaceId,
     invalid_item_view::InvalidItemView,
     item::{FollowableItem, Item, ItemBufferKind, ItemEvent, ProjectItem, SaveOptions},
     searchable::{
@@ -54,9 +54,6 @@ use workspace::{
     Pane, WorkspaceSettings,
     item::{FollowEvent, ProjectItemKind},
     searchable::SearchOptions,
-};
-use zed_actions::preview::{
-    markdown::OpenPreview as OpenMarkdownPreview, svg::OpenPreview as OpenSvgPreview,
 };
 
 pub const MAX_TAB_TITLE_LEN: usize = 24;
@@ -356,29 +353,6 @@ impl FollowableItem for Editor {
         } else {
             None
         }
-    }
-
-    fn update_agent_location(
-        &mut self,
-        location: language::Anchor,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let buffer = self.buffer.read(cx);
-        let buffer = buffer.read(cx);
-        let Some(position) = buffer.anchor_in_excerpt(location) else {
-            return;
-        };
-        let selection = Selection {
-            id: 0,
-            reversed: false,
-            start: position,
-            end: position,
-            goal: SelectionGoal::None,
-        };
-        drop(buffer);
-        self.set_selections_from_remote(vec![selection], None, window, cx);
-        self.request_autoscroll_remotely(Autoscroll::fit(), cx);
     }
 }
 
@@ -874,9 +848,9 @@ impl Item for Editor {
     ) -> Task<Result<()>> {
         // Add meta data tracking # of auto saves
         if options.autosave {
-            self.report_editor_event(ReportEditorEvent::Saved { auto_saved: true }, None, cx);
+            self.report_editor_event(ReportEditorEvent::Saved, None, cx);
         } else {
-            self.report_editor_event(ReportEditorEvent::Saved { auto_saved: false }, None, cx);
+            self.report_editor_event(ReportEditorEvent::Saved, None, cx);
         }
 
         let buffers = self.buffer().clone().read(cx).all_buffers();
@@ -940,11 +914,7 @@ impl Item for Editor {
             .expect("cannot call save_as on an excerpt list");
 
         let file_extension = path.path.extension().map(|a| a.to_string());
-        self.report_editor_event(
-            ReportEditorEvent::Saved { auto_saved: false },
-            file_extension,
-            cx,
-        );
+        self.report_editor_event(ReportEditorEvent::Saved, file_extension, cx);
 
         project.update(cx, |project, cx| project.save_buffer_as(buffer, path, cx))
     }
@@ -985,26 +955,6 @@ impl Item for Editor {
 
     fn pixel_position_of_cursor(&self, _: &App) -> Option<gpui::Point<Pixels>> {
         self.pixel_position_of_newest_cursor
-    }
-
-    fn breadcrumb_location(&self, cx: &App) -> ToolbarItemLocation {
-        if self.show_breadcrumbs && self.buffer().read(cx).is_singleton() {
-            ToolbarItemLocation::PrimaryLeft
-        } else {
-            ToolbarItemLocation::Hidden
-        }
-    }
-
-    // In a non-singleton case, the breadcrumbs are actually shown on sticky file headers of the multibuffer.
-    fn breadcrumbs(&self, cx: &App) -> Option<(Vec<HighlightedText>, Option<Font>)> {
-        if self.buffer.read(cx).is_singleton() {
-            let font = theme_settings::ThemeSettings::get_global(cx)
-                .buffer_font
-                .clone();
-            Some((self.breadcrumbs_inner(cx)?, Some(font)))
-        } else {
-            None
-        }
     }
 
     fn added_to_workspace(
@@ -1048,36 +998,12 @@ impl Item for Editor {
         }
     }
 
-    fn pane_changed(&mut self, new_pane_id: EntityId, cx: &mut Context<Self>) {
-        if self
-            .highlighted_rows
-            .get(&TypeId::of::<ActiveDebugLine>())
-            .is_some_and(|lines| !lines.is_empty())
-            && let Some(breakpoint_store) = self.breakpoint_store.as_ref()
-        {
-            breakpoint_store.update(cx, |store, _cx| {
-                store.set_active_debug_pane_id(new_pane_id);
-            });
-        }
-    }
+    fn pane_changed(&mut self, _new_pane_id: EntityId, _cx: &mut Context<Self>) {}
 
     fn to_item_events(event: &EditorEvent, f: &mut dyn FnMut(ItemEvent)) {
         match event {
             EditorEvent::Saved | EditorEvent::TitleChanged => {
                 f(ItemEvent::UpdateTab);
-                f(ItemEvent::UpdateBreadcrumbs);
-            }
-
-            EditorEvent::Reparsed(_) => {
-                f(ItemEvent::UpdateBreadcrumbs);
-            }
-
-            EditorEvent::SelectionsChanged { local } if *local => {
-                f(ItemEvent::UpdateBreadcrumbs);
-            }
-
-            EditorEvent::BreadcrumbsChanged => {
-                f(ItemEvent::UpdateBreadcrumbs);
             }
 
             EditorEvent::DirtyChanged => {
@@ -1086,7 +1012,6 @@ impl Item for Editor {
 
             EditorEvent::BufferEdited => {
                 f(ItemEvent::Edit);
-                f(ItemEvent::UpdateBreadcrumbs);
             }
 
             EditorEvent::BufferRangesUpdated { .. } | EditorEvent::BuffersRemoved { .. } => {
@@ -1100,43 +1025,9 @@ impl Item for Editor {
     fn tab_extra_context_menu_actions(
         &self,
         _window: &mut Window,
-        cx: &mut Context<Self>,
+        _cx: &mut Context<Self>,
     ) -> Vec<(SharedString, Box<dyn gpui::Action>)> {
-        let mut actions = Vec::new();
-
-        let is_markdown = self
-            .buffer()
-            .read(cx)
-            .as_singleton()
-            .and_then(|buffer| buffer.read(cx).language())
-            .is_some_and(|language| language.name().as_ref() == "Markdown");
-
-        let is_svg = self
-            .buffer()
-            .read(cx)
-            .as_singleton()
-            .and_then(|buffer| buffer.read(cx).file())
-            .is_some_and(|file| {
-                std::path::Path::new(file.file_name(cx))
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
-            });
-
-        if is_markdown {
-            actions.push((
-                "Open Markdown Preview".into(),
-                Box::new(OpenMarkdownPreview) as Box<dyn gpui::Action>,
-            ));
-        }
-
-        if is_svg {
-            actions.push((
-                "Open SVG Preview".into(),
-                Box::new(OpenSvgPreview) as Box<dyn gpui::Action>,
-            ));
-        }
-
-        actions
+        Vec::new()
     }
 
     fn preserve_preview(&self, cx: &App) -> bool {
@@ -1150,18 +1041,12 @@ impl SerializableItem for Editor {
     }
 
     fn cleanup(
-        workspace_id: WorkspaceId,
-        alive_items: Vec<ItemId>,
+        _workspace_id: WorkspaceId,
+        _alive_items: Vec<ItemId>,
         _window: &mut Window,
-        cx: &mut App,
+        _cx: &mut App,
     ) -> Task<Result<()>> {
-        workspace::delete_unloaded_items(
-            alive_items,
-            workspace_id,
-            "editors",
-            &EditorDb::global(cx),
-            cx,
-        )
+        Task::ready(Ok(()))
     }
 
     fn deserialize(
@@ -1520,7 +1405,7 @@ impl Editor {
         cx: &mut Context<Self>,
         write: impl for<'a> FnOnce(&'a mut RestorationData) + 'static,
     ) {
-        if self.mode.is_minimap() || !WorkspaceSettings::get(None, cx).restore_on_file_reopen {
+        if !WorkspaceSettings::get(None, cx).restore_on_file_reopen {
             return;
         }
 

@@ -1,3 +1,4 @@
+#[cfg(feature = "archive")]
 pub mod archive;
 pub mod command;
 pub mod disambiguate;
@@ -39,6 +40,45 @@ pub use util_macros::{line_endings, path, uri};
 pub use self::shell::{
     get_default_system_shell, get_default_system_shell_preferring_bash, get_system_shell,
 };
+
+const URI_COMPONENT_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+    .add(b' ')
+    .add(b'!')
+    .add(b'"')
+    .add(b'#')
+    .add(b'$')
+    .add(b'%')
+    .add(b'&')
+    .add(b'\'')
+    .add(b'(')
+    .add(b')')
+    .add(b'*')
+    .add(b'+')
+    .add(b',')
+    .add(b'/')
+    .add(b':')
+    .add(b';')
+    .add(b'<')
+    .add(b'=')
+    .add(b'>')
+    .add(b'?')
+    .add(b'@')
+    .add(b'[')
+    .add(b'\\')
+    .add(b']')
+    .add(b'^')
+    .add(b'`')
+    .add(b'{')
+    .add(b'|')
+    .add(b'}');
+
+pub fn percent_encode_uri_component(component: &str) -> Cow<'_, str> {
+    percent_encoding::utf8_percent_encode(component, URI_COMPONENT_ENCODE_SET).into()
+}
+
+pub fn percent_decode_uri_component(component: &str) -> Result<Cow<'_, str>, std::str::Utf8Error> {
+    percent_encoding::percent_decode_str(component).decode_utf8()
+}
 
 #[inline]
 pub const fn is_utf8_char_boundary(u8: u8) -> bool {

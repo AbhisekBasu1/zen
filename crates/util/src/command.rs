@@ -1,6 +1,5 @@
 use std::ffi::OsStr;
-#[cfg(not(target_os = "macos"))]
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "macos")]
 mod darwin;
@@ -13,6 +12,86 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000_u32;
 
 pub fn new_command(program: impl AsRef<OsStr>) -> Command {
     Command::new(program)
+}
+
+pub fn find_executable(program: impl AsRef<OsStr>) -> Option<PathBuf> {
+    find_executable_in_paths(
+        program,
+        std::env::var_os("PATH")?,
+        std::env::current_dir().ok()?,
+    )
+}
+
+pub fn find_global_executable(program: impl AsRef<OsStr>) -> Option<PathBuf> {
+    find_executable(program)
+}
+
+pub fn find_executable_in_paths(
+    program: impl AsRef<OsStr>,
+    search_paths: impl AsRef<OsStr>,
+    current_dir: impl AsRef<Path>,
+) -> Option<PathBuf> {
+    let program = Path::new(program.as_ref());
+    if program.components().count() > 1 {
+        let candidate = if program.is_absolute() {
+            program.to_path_buf()
+        } else {
+            current_dir.as_ref().join(program)
+        };
+        return is_executable_file(&candidate).then_some(candidate);
+    }
+
+    std::env::split_paths(search_paths.as_ref()).find_map(|dir| {
+        executable_candidates(&dir.join(program))
+            .into_iter()
+            .find(|candidate| is_executable_file(candidate))
+    })
+}
+
+#[cfg(unix)]
+fn executable_candidates(path: &Path) -> Vec<PathBuf> {
+    vec![path.to_path_buf()]
+}
+
+#[cfg(windows)]
+fn executable_candidates(path: &Path) -> Vec<PathBuf> {
+    if path.extension().is_some() {
+        return vec![path.to_path_buf()];
+    }
+
+    let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+    pathext
+        .split(';')
+        .filter(|extension| !extension.is_empty())
+        .map(|extension| {
+            let mut path = path.as_os_str().to_os_string();
+            path.push(extension);
+            PathBuf::from(path)
+        })
+        .collect()
+}
+
+#[cfg(not(any(unix, windows)))]
+fn executable_candidates(path: &Path) -> Vec<PathBuf> {
+    vec![path.to_path_buf()]
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    path.metadata()
+        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(windows)]
+fn is_executable_file(path: &Path) -> bool {
+    path.is_file()
+}
+
+#[cfg(not(any(unix, windows)))]
+fn is_executable_file(path: &Path) -> bool {
+    path.is_file()
 }
 
 #[cfg(target_os = "windows")]

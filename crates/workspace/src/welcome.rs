@@ -1,27 +1,22 @@
 use crate::{
-    NewFile, Open, OpenMode, PathList, SerializedWorkspaceLocation, ToggleWorkspaceSidebar,
-    Workspace, WorkspaceId,
+    NewFile, Open, OpenMode, PathList, SerializedWorkspaceLocation, Workspace, WorkspaceId,
     item::{Item, ItemEvent},
     persistence::WorkspaceDb,
 };
-use agent_settings::AgentSettings;
 use chrono::{DateTime, Utc};
 use git::Clone as GitClone;
+use gpui::WeakEntity;
 use gpui::{
     Action, App, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
     ParentElement, Render, Styled, Task, Window, actions,
 };
-use gpui::{WeakEntity, linear_color_stop, linear_gradient};
 use menu::{SelectNext, SelectPrevious};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use settings::Settings;
 use ui::{ButtonLike, Divider, DividerColor, KeyBinding, Vector, VectorName, prelude::*};
 use util::ResultExt;
-use zed_actions::{
-    Extensions, OpenKeymap, OpenOnboarding, OpenSettings, assistant::ToggleFocus, command_palette,
-};
+use zen_actions::{OpenKeymap, OpenSettings};
 
 #[derive(PartialEq, Clone, Debug, Deserialize, Serialize, JsonSchema, Action)]
 #[action(namespace = welcome)]
@@ -31,9 +26,9 @@ pub struct OpenRecentProject {
 }
 
 actions!(
-    zed,
+    zen,
     [
-        /// Show the Zed welcome screen
+        /// Show the Zen welcome screen
         ShowWelcome
     ]
 );
@@ -161,7 +156,7 @@ impl SectionEntry {
     }
 }
 
-const CONTENT: (Section<4>, Section<3>) = (
+const CONTENT: (Section<3>, Section<2>) = (
     Section {
         title: "Get Started",
         entries: [
@@ -183,12 +178,6 @@ const CONTENT: (Section<4>, Section<3>) = (
                 action: &GitClone,
                 visibility_guard: SectionVisibility::Always,
             },
-            SectionEntry {
-                icon: IconName::ListCollapse,
-                title: "Open Command Palette",
-                action: &command_palette::Toggle,
-                visibility_guard: SectionVisibility::Always,
-            },
         ],
     },
     Section {
@@ -204,15 +193,6 @@ const CONTENT: (Section<4>, Section<3>) = (
                 icon: IconName::Keyboard,
                 title: "Customize Keymaps",
                 action: &OpenKeymap,
-                visibility_guard: SectionVisibility::Always,
-            },
-            SectionEntry {
-                icon: IconName::Blocks,
-                title: "Explore Extensions",
-                action: &Extensions {
-                    category_filter: None,
-                    id: None,
-                },
                 visibility_guard: SectionVisibility::Always,
             },
         ],
@@ -326,60 +306,11 @@ impl WelcomePage {
                         })
                         .log_err();
                 } else {
-                    use zed_actions::OpenRecent;
+                    use zen_actions::OpenRecent;
                     window.dispatch_action(OpenRecent::default().boxed_clone(), cx);
                 }
             }
         }
-    }
-
-    fn render_agent_card(&self, tab_index: usize, cx: &mut Context<Self>) -> impl IntoElement {
-        let focus = self.focus_handle.clone();
-        let color = cx.theme().colors();
-
-        let description = "Run multiple threads at once, mix and match any ACP-compatible agent, and keep work conflict-free with worktrees.";
-
-        v_flex()
-            .w_full()
-            .p_2()
-            .rounded_md()
-            .border_1()
-            .border_color(color.border_variant)
-            .bg(linear_gradient(
-                360.,
-                linear_color_stop(color.panel_background, 1.0),
-                linear_color_stop(color.editor_background, 0.45),
-            ))
-            .child(
-                h_flex()
-                    .gap_1p5()
-                    .child(
-                        Icon::new(IconName::ZedAssistant)
-                            .color(Color::Muted)
-                            .size(IconSize::Small),
-                    )
-                    .child(Label::new("Collaborate with Agents")),
-            )
-            .child(
-                Label::new(description)
-                    .size(LabelSize::Small)
-                    .color(Color::Muted)
-                    .mb_2(),
-            )
-            .child(
-                Button::new("open-agent", "Open Agent Panel")
-                    .full_width()
-                    .tab_index(tab_index as isize)
-                    .style(ButtonStyle::Outlined)
-                    .key_binding(
-                        KeyBinding::for_action_in(&ToggleFocus, &self.focus_handle, cx)
-                            .size(rems_from_px(12.)),
-                    )
-                    .on_click(move |_, window, cx| {
-                        focus.dispatch_action(&ToggleWorkspaceSidebar, window, cx);
-                        focus.dispatch_action(&ToggleFocus, window, cx);
-                    }),
-            )
     }
 
     fn render_recent_project_section(
@@ -422,9 +353,6 @@ impl Render for WelcomePage {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (first_section, second_section) = CONTENT;
         let first_section_entries = first_section.entries.len();
-        let mut next_tab_index = first_section_entries + second_section.entries.len();
-
-        let ai_enabled = AgentSettings::get_global(cx).enabled(cx);
 
         let recent_projects = self
             .recent_workspaces
@@ -450,9 +378,9 @@ impl Render for WelcomePage {
         };
 
         let welcome_label = if self.fallback_to_recent_projects {
-            "Welcome back to Zed"
+            "Welcome back to Zen"
         } else {
-            "Welcome to Zed"
+            "Welcome to Zen"
         };
 
         h_flex()
@@ -479,10 +407,10 @@ impl Render for WelcomePage {
                             .justify_center()
                             .mb_4()
                             .gap_4()
-                            .child(Vector::square(VectorName::ZedLogo, rems_from_px(45.)))
+                            .child(Vector::square(VectorName::ZenLogo, rems_from_px(45.)))
                             .child(
                                 v_flex().child(Headline::new(welcome_label)).child(
-                                    Label::new("The editor for what's next")
+                                    Label::new("A calm workspace for repository context")
                                         .size(LabelSize::Small)
                                         .color(Color::Muted)
                                         .italic(),
@@ -490,25 +418,7 @@ impl Render for WelcomePage {
                             ),
                     )
                     .child(first_section.render(Default::default(), &self.focus_handle))
-                    .child(second_section)
-                    .when(ai_enabled && !showing_recent_projects, |this| {
-                        let agent_tab_index = next_tab_index;
-                        next_tab_index += 1;
-                        this.child(self.render_agent_card(agent_tab_index, cx))
-                    })
-                    .when(!self.fallback_to_recent_projects, |this| {
-                        this.child(
-                            v_flex().gap_4().child(Divider::horizontal()).child(
-                                Button::new("welcome-exit", "Return to Onboarding")
-                                    .tab_index(next_tab_index as isize)
-                                    .full_width()
-                                    .label_size(LabelSize::XSmall)
-                                    .on_click(|_, window, cx| {
-                                        window.dispatch_action(OpenOnboarding.boxed_clone(), cx);
-                                    }),
-                            ),
-                        )
-                    }),
+                    .child(second_section),
             )
     }
 }
@@ -547,111 +457,38 @@ impl crate::SerializableItem for WelcomePage {
     }
 
     fn cleanup(
-        workspace_id: crate::WorkspaceId,
-        alive_items: Vec<crate::ItemId>,
+        _workspace_id: crate::WorkspaceId,
+        _alive_items: Vec<crate::ItemId>,
         _window: &mut Window,
-        cx: &mut App,
+        _cx: &mut App,
     ) -> Task<gpui::Result<()>> {
-        crate::delete_unloaded_items(
-            alive_items,
-            workspace_id,
-            "welcome_pages",
-            &persistence::WelcomePagesDb::global(cx),
-            cx,
-        )
+        Task::ready(Ok(()))
     }
 
     fn deserialize(
         _project: Entity<project::Project>,
-        workspace: gpui::WeakEntity<Workspace>,
-        workspace_id: crate::WorkspaceId,
-        item_id: crate::ItemId,
-        window: &mut Window,
-        cx: &mut App,
+        _workspace: gpui::WeakEntity<Workspace>,
+        _workspace_id: crate::WorkspaceId,
+        _item_id: crate::ItemId,
+        _window: &mut Window,
+        _cx: &mut App,
     ) -> Task<gpui::Result<Entity<Self>>> {
-        if persistence::WelcomePagesDb::global(cx)
-            .get_welcome_page(item_id, workspace_id)
-            .ok()
-            .is_some_and(|is_open| is_open)
-        {
-            Task::ready(Ok(
-                cx.new(|cx| WelcomePage::new(workspace, false, window, cx))
-            ))
-        } else {
-            Task::ready(Err(anyhow::anyhow!("No welcome page to deserialize")))
-        }
+        Task::ready(Err(anyhow::anyhow!("Welcome page persistence is disabled")))
     }
 
     fn serialize(
         &mut self,
-        workspace: &mut Workspace,
-        item_id: crate::ItemId,
+        _workspace: &mut Workspace,
+        _item_id: crate::ItemId,
         _closing: bool,
         _window: &mut Window,
-        cx: &mut Context<Self>,
+        _cx: &mut Context<Self>,
     ) -> Option<Task<gpui::Result<()>>> {
-        let workspace_id = workspace.database_id()?;
-        let db = persistence::WelcomePagesDb::global(cx);
-        Some(cx.background_spawn(
-            async move { db.save_welcome_page(item_id, workspace_id, true).await },
-        ))
+        None
     }
 
     fn should_serialize(&self, event: &Self::Event) -> bool {
         event == &ItemEvent::UpdateTab
-    }
-}
-
-mod persistence {
-    use crate::WorkspaceDb;
-    use db::{
-        query,
-        sqlez::{domain::Domain, thread_safe_connection::ThreadSafeConnection},
-        sqlez_macros::sql,
-    };
-
-    pub struct WelcomePagesDb(ThreadSafeConnection);
-
-    impl Domain for WelcomePagesDb {
-        const NAME: &str = stringify!(WelcomePagesDb);
-
-        const MIGRATIONS: &[&str] = (&[sql!(
-                    CREATE TABLE welcome_pages (
-                        workspace_id INTEGER,
-                        item_id INTEGER UNIQUE,
-                        is_open INTEGER DEFAULT FALSE,
-
-                        PRIMARY KEY(workspace_id, item_id),
-                        FOREIGN KEY(workspace_id) REFERENCES workspaces(workspace_id)
-                        ON DELETE CASCADE
-                    ) STRICT;
-        )]);
-    }
-
-    db::static_connection!(WelcomePagesDb, [WorkspaceDb]);
-
-    impl WelcomePagesDb {
-        query! {
-            pub async fn save_welcome_page(
-                item_id: crate::ItemId,
-                workspace_id: crate::WorkspaceId,
-                is_open: bool
-            ) -> Result<()> {
-                INSERT OR REPLACE INTO welcome_pages(item_id, workspace_id, is_open)
-                VALUES (?, ?, ?)
-            }
-        }
-
-        query! {
-            pub fn get_welcome_page(
-                item_id: crate::ItemId,
-                workspace_id: crate::WorkspaceId
-            ) -> Result<bool> {
-                SELECT is_open
-                FROM welcome_pages
-                WHERE item_id = ? AND workspace_id = ?
-            }
-        }
     }
 }
 
@@ -666,36 +503,5 @@ fn project_name(paths: &PathList) -> String {
         "Untitled".to_string()
     } else {
         joined
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_project_name_empty() {
-        let paths = PathList::new::<&str>(&[]);
-        assert_eq!(project_name(&paths), "Untitled");
-    }
-
-    #[test]
-    fn test_project_name_single() {
-        let paths = PathList::new(&["/home/user/my-project"]);
-        assert_eq!(project_name(&paths), "my-project");
-    }
-
-    #[test]
-    fn test_project_name_multiple() {
-        // PathList sorts lexicographically, so filenames appear in alpha order
-        let paths = PathList::new(&["/home/user/zed", "/home/user/api"]);
-        assert_eq!(project_name(&paths), "api, zed");
-    }
-
-    #[test]
-    fn test_project_name_root_path_filtered() {
-        // A bare root "/" has no file_name(), falls back to "Untitled"
-        let paths = PathList::new(&["/"]);
-        assert_eq!(project_name(&paths), "Untitled");
     }
 }

@@ -92,7 +92,7 @@ pub use inlay_map::{InlayOffset, InlayPoint};
 pub use invisibles::{is_invisible, replacement};
 pub use wrap_map::{WrapPoint, WrapRow, WrapSnapshot};
 
-use collections::{HashMap, HashSet, IndexSet};
+use collections::{HashMap, HashSet};
 use gpui::{
     App, Context, Entity, EntityId, Font, HighlightStyle, LineLayout, Pixels, UnderlineStyle,
     WeakEntity,
@@ -106,8 +106,8 @@ use multi_buffer::{
     Anchor, AnchorRangeExt, MultiBuffer, MultiBufferOffset, MultiBufferOffsetUtf16,
     MultiBufferPoint, MultiBufferRow, MultiBufferSnapshot, RowInfo, ToOffset, ToPoint,
 };
+use project::InlayId;
 use project::project_settings::DiagnosticSeverity;
-use project::{InlayId, lsp_store::LspFoldingRange, lsp_store::TokenType};
 use serde::Deserialize;
 use settings::Settings;
 use smallvec::SmallVec;
@@ -125,7 +125,7 @@ use std::{
     fmt::Debug,
     iter,
     num::NonZeroU32,
-    ops::{self, Add, Range, Sub},
+    ops::{Add, Range, Sub},
     sync::Arc,
 };
 
@@ -165,16 +165,13 @@ pub enum HighlightKey {
     // below is sorted lexicographically, as there is no relevant ordering for these aside from coming after the above
     BufferSearchHighlights,
     ConsoleAnsiHighlight(usize),
-    DebugStackFrameLine,
     DocumentHighlightRead,
     DocumentHighlightWrite,
     EditPredictionHighlight,
     Editor,
     HighlightOnYank,
     HighlightsTreeView(usize),
-    HoverState,
     HoveredLinkState,
-    InlineAssist,
     InputComposition,
     MatchingBracket,
     NavigationOverlay(NavigationOverlayKey),
@@ -192,8 +189,6 @@ pub trait ToDisplayPoint {
 }
 
 type TextHighlights = Arc<HashMap<HighlightKey, Arc<(HighlightStyle, Vec<Range<Anchor>>)>>>;
-type SemanticTokensHighlights =
-    Arc<HashMap<BufferId, (Arc<[SemanticTokenHighlight]>, Arc<HighlightStyleInterner>)>>;
 type InlayHighlights = TreeMap<HighlightKey, TreeMap<InlayId, (HighlightStyle, InlayHighlight)>>;
 
 #[derive(Debug)]
@@ -227,8 +222,6 @@ pub struct DisplayMap {
     text_highlights: TextHighlights,
     /// Regions of inlays that should be highlighted.
     inlay_highlights: InlayHighlights,
-    /// The semantic tokens from the language server.
-    pub semantic_token_highlights: SemanticTokensHighlights,
     /// A container for explicitly foldable ranges, which supersede indentation based fold range suggestions.
     crease_map: CreaseMap,
     pub(crate) fold_placeholder: FoldPlaceholder,
@@ -236,7 +229,6 @@ pub struct DisplayMap {
     pub(crate) masked: bool,
     pub(crate) diagnostics_max_severity: DiagnosticSeverity,
     pub(crate) companion: Option<(WeakEntity<DisplayMap>, Entity<Companion>)>,
-    lsp_folding_crease_ids: HashMap<BufferId, Vec<CreaseId>>,
 }
 
 pub(crate) struct Companion {
@@ -328,38 +320,6 @@ impl Companion {
     }
 }
 
-#[derive(Default, Debug)]
-pub struct HighlightStyleInterner {
-    styles: IndexSet<HighlightStyle>,
-}
-
-impl HighlightStyleInterner {
-    pub(crate) fn intern(&mut self, style: HighlightStyle) -> HighlightStyleId {
-        HighlightStyleId(self.styles.insert_full(style).0 as u32)
-    }
-}
-
-impl ops::Index<HighlightStyleId> for HighlightStyleInterner {
-    type Output = HighlightStyle;
-
-    fn index(&self, index: HighlightStyleId) -> &Self::Output {
-        &self.styles[index.0 as usize]
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct HighlightStyleId(u32);
-
-/// A `SemanticToken`, but positioned to an offset in a buffer, and stylized.
-#[derive(Debug, Clone)]
-pub struct SemanticTokenHighlight {
-    pub range: Range<Anchor>,
-    pub style: HighlightStyleId,
-    pub token_type: TokenType,
-    pub token_modifiers: u32,
-    pub server_id: lsp::LanguageServerId,
-}
-
 impl DisplayMap {
     pub fn new(
         buffer: Entity<MultiBuffer>,
@@ -402,11 +362,9 @@ impl DisplayMap {
             diagnostics_max_severity,
             text_highlights: Default::default(),
             inlay_highlights: Default::default(),
-            semantic_token_highlights: Default::default(),
             clip_at_line_ends: false,
             masked: false,
             companion: None,
-            lsp_folding_crease_ids: HashMap::default(),
         }
     }
 
@@ -656,10 +614,8 @@ impl DisplayMap {
             crease_snapshot: self.crease_map.snapshot(),
             text_highlights: self.text_highlights.clone(),
             inlay_highlights: self.inlay_highlights.clone(),
-            semantic_token_highlights: self.semantic_token_highlights.clone(),
             clip_at_line_ends: self.clip_at_line_ends,
             masked: self.masked,
-            use_lsp_folding_ranges: !self.lsp_folding_crease_ids.is_empty(),
             fold_placeholder: self.fold_placeholder.clone(),
         }
     }
@@ -680,10 +636,8 @@ impl DisplayMap {
             crease_snapshot: self.crease_map.snapshot(),
             text_highlights: self.text_highlights.clone(),
             inlay_highlights: self.inlay_highlights.clone(),
-            semantic_token_highlights: self.semantic_token_highlights.clone(),
             clip_at_line_ends: self.clip_at_line_ends,
             masked: self.masked,
-            use_lsp_folding_ranges: !self.lsp_folding_crease_ids.is_empty(),
             fold_placeholder: self.fold_placeholder.clone(),
         }
     }
@@ -939,74 +893,6 @@ impl DisplayMap {
         self.crease_map.remove(crease_ids, &snapshot)
     }
 
-    /// Replaces the LSP folding-range creases for a single buffer.
-    /// Converts the supplied buffer-anchor ranges into multi-buffer creases
-    /// by mapping them through the appropriate excerpts.
-    pub(super) fn set_lsp_folding_ranges(
-        &mut self,
-        buffer_id: BufferId,
-        ranges: Vec<LspFoldingRange>,
-        cx: &mut Context<Self>,
-    ) {
-        let snapshot = self.buffer.read(cx).snapshot(cx);
-
-        let old_ids = self
-            .lsp_folding_crease_ids
-            .remove(&buffer_id)
-            .unwrap_or_default();
-        if !old_ids.is_empty() {
-            self.crease_map.remove(old_ids, &snapshot);
-        }
-
-        if ranges.is_empty() {
-            return;
-        }
-
-        let base_placeholder = self.fold_placeholder.clone();
-        let creases = ranges.into_iter().filter_map(|folding_range| {
-            let mb_range =
-                snapshot.buffer_anchor_range_to_anchor_range(folding_range.range.clone())?;
-            let placeholder = if let Some(collapsed_text) = folding_range.collapsed_text {
-                FoldPlaceholder {
-                    render: Arc::new({
-                        let collapsed_text = collapsed_text.clone();
-                        move |fold_id, _fold_range, cx: &mut gpui::App| {
-                            use gpui::{Element as _, ParentElement as _};
-                            FoldPlaceholder::fold_element(fold_id, cx)
-                                .child(collapsed_text.clone())
-                                .into_any()
-                        }
-                    }),
-                    constrain_width: false,
-                    merge_adjacent: base_placeholder.merge_adjacent,
-                    type_tag: base_placeholder.type_tag,
-                    collapsed_text: Some(collapsed_text),
-                }
-            } else {
-                base_placeholder.clone()
-            };
-            Some(Crease::simple(mb_range, placeholder))
-        });
-
-        let new_ids = self.crease_map.insert(creases, &snapshot);
-        if !new_ids.is_empty() {
-            self.lsp_folding_crease_ids.insert(buffer_id, new_ids);
-        }
-    }
-
-    /// Removes all LSP folding-range creases for a single buffer.
-    pub(super) fn clear_lsp_folding_ranges(&mut self, buffer_id: BufferId, cx: &mut Context<Self>) {
-        if let Some(old_ids) = self.lsp_folding_crease_ids.remove(&buffer_id) {
-            let snapshot = self.buffer.read(cx).snapshot(cx);
-            self.crease_map.remove(old_ids, &snapshot);
-        }
-    }
-
-    /// Returns `true` when at least one buffer has LSP folding-range creases.
-    pub(super) fn has_lsp_folding_ranges(&self) -> bool {
-        !self.lsp_folding_crease_ids.is_empty()
-    }
-
     #[instrument(skip_all)]
     pub fn insert_blocks(
         &mut self,
@@ -1158,26 +1044,6 @@ impl DisplayMap {
     }
 
     #[instrument(skip_all)]
-    pub(crate) fn highlight_inlays(
-        &mut self,
-        key: HighlightKey,
-        highlights: Vec<InlayHighlight>,
-        style: HighlightStyle,
-    ) {
-        for highlight in highlights {
-            let update = self.inlay_highlights.update(&key, |highlights| {
-                highlights.insert(highlight.inlay, (style, highlight.clone()))
-            });
-            if update.is_none() {
-                self.inlay_highlights.insert(
-                    key,
-                    TreeMap::from_ordered_entries([(highlight.inlay, (style, highlight))]),
-                );
-            }
-        }
-    }
-
-    #[instrument(skip_all)]
     pub fn text_highlights(&self, key: HighlightKey) -> Option<(HighlightStyle, &[Range<Anchor>])> {
         let highlights = self.text_highlights.get(&key)?;
         Some((highlights.0, &highlights.1))
@@ -1187,17 +1053,6 @@ impl DisplayMap {
         &self,
     ) -> impl Iterator<Item = (&HighlightKey, &Arc<(HighlightStyle, Vec<Range<Anchor>>)>)> {
         self.text_highlights.iter()
-    }
-
-    pub fn all_semantic_token_highlights(
-        &self,
-    ) -> impl Iterator<
-        Item = (
-            &BufferId,
-            &(Arc<[SemanticTokenHighlight]>, Arc<HighlightStyleInterner>),
-        ),
-    > {
-        self.semantic_token_highlights.iter()
     }
 
     pub fn clear_highlights(&mut self, key: HighlightKey) -> bool {
@@ -1264,6 +1119,7 @@ impl DisplayMap {
         widths_changed
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn current_inlays(&self) -> impl Iterator<Item = &Inlay> + Default {
         self.inlay_map.current_inlays()
     }
@@ -1360,17 +1216,12 @@ impl DisplayMap {
     pub fn is_rewrapping(&self, cx: &gpui::App) -> bool {
         self.wrap_map.read(cx).is_rewrapping()
     }
-
-    pub fn invalidate_semantic_highlights(&mut self, buffer_id: BufferId) {
-        Arc::make_mut(&mut self.semantic_token_highlights).remove(&buffer_id);
-    }
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct Highlights<'a> {
     pub text_highlights: Option<&'a TextHighlights>,
     pub inlay_highlights: Option<&'a InlayHighlights>,
-    pub semantic_token_highlights: Option<&'a SemanticTokensHighlights>,
     pub styles: HighlightStyles,
 }
 
@@ -1382,7 +1233,7 @@ pub struct EditPredictionStyles {
 
 #[derive(Default, Debug, Clone, Copy)]
 pub struct HighlightStyles {
-    pub inlay_hint: Option<HighlightStyle>,
+    pub inlay: Option<HighlightStyle>,
     pub edit_prediction: Option<EditPredictionStyles>,
 }
 
@@ -1509,14 +1360,10 @@ pub struct DisplaySnapshot {
     block_snapshot: BlockSnapshot,
     text_highlights: TextHighlights,
     inlay_highlights: InlayHighlights,
-    semantic_token_highlights: SemanticTokensHighlights,
     clip_at_line_ends: bool,
     masked: bool,
     diagnostics_max_severity: DiagnosticSeverity,
     pub(crate) fold_placeholder: FoldPlaceholder,
-    /// When true, LSP folding ranges are used via the crease map and the
-    /// indent-based fallback in `crease_for_buffer_row` is skipped.
-    pub(crate) use_lsp_folding_ranges: bool,
 }
 
 impl DisplaySnapshot {
@@ -1789,7 +1636,6 @@ impl DisplaySnapshot {
             Highlights {
                 text_highlights: Some(&self.text_highlights),
                 inlay_highlights: Some(&self.inlay_highlights),
-                semantic_token_highlights: Some(&self.semantic_token_highlights),
                 styles: highlight_styles,
             },
         )
@@ -1806,7 +1652,7 @@ impl DisplaySnapshot {
             display_rows,
             language_aware,
             HighlightStyles {
-                inlay_hint: Some(editor_style.inlay_hints_style),
+                inlay: Some(editor_style.inlay_style),
                 edit_prediction: Some(editor_style.edit_prediction_styles),
             },
         )
@@ -1877,55 +1723,6 @@ impl DisplaySnapshot {
             }
             .highlight_invisibles(editor_style)
         })
-    }
-
-    /// Returns combined highlight styles (tree-sitter syntax + semantic tokens)
-    /// for a byte range within the specified buffer.
-    /// Returned ranges are 0-based relative to `buffer_range.start`.
-    pub(super) fn combined_highlights(
-        &self,
-        multibuffer_range: Range<MultiBufferOffset>,
-        syntax_theme: &theme::SyntaxTheme,
-    ) -> Vec<(Range<usize>, HighlightStyle)> {
-        let multibuffer = self.buffer_snapshot();
-
-        let chunks = custom_highlights::CustomHighlightsChunks::new(
-            multibuffer_range,
-            LanguageAwareStyling {
-                tree_sitter: true,
-                diagnostics: true,
-            },
-            None,
-            Some(&self.semantic_token_highlights),
-            multibuffer,
-        );
-
-        let mut highlights = Vec::new();
-        let mut offset = 0usize;
-        for chunk in chunks {
-            let chunk_len = chunk.text.len();
-            if chunk_len == 0 {
-                continue;
-            }
-
-            let syntax_style = chunk
-                .syntax_highlight_id
-                .and_then(|id| syntax_theme.get(id).cloned());
-
-            let overlay_style = chunk.highlight_style;
-
-            let combined = match (syntax_style, overlay_style) {
-                (Some(syntax), Some(overlay)) => Some(syntax.highlight(overlay)),
-                (some @ Some(_), None) | (None, some @ Some(_)) => some,
-                (None, None) => None,
-            };
-
-            if let Some(style) = combined {
-                highlights.push((offset..offset + chunk_len, style));
-            }
-            offset += chunk_len;
-        }
-        highlights
     }
 
     #[instrument(skip_all)]
@@ -2263,8 +2060,7 @@ impl DisplaySnapshot {
                     render_toggle: render_toggle.clone(),
                 }),
             }
-        } else if !self.use_lsp_folding_ranges
-            && self.starts_indent(MultiBufferRow(start.row))
+        } else if self.starts_indent(MultiBufferRow(start.row))
             && !self.is_line_folded(MultiBufferRow(start.row))
         {
             let start_line_indent = self.line_indent_for_buffer_row(buffer_row);

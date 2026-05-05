@@ -6,9 +6,9 @@ use editor::{Editor, EditorEvent, EditorSettings, MultiBuffer, SplittableEditor}
 use futures::{FutureExt, select_biased};
 use gpui::{
     AnyElement, App, AppContext as _, AsyncApp, Context, Entity, EventEmitter, FocusHandle,
-    Focusable, Font, IntoElement, Render, Task, WeakEntity, Window,
+    Focusable, IntoElement, Render, Task, WeakEntity, Window,
 };
-use language::{Buffer, HighlightedText, LanguageRegistry};
+use language::{Buffer, LanguageRegistry};
 use project::Project;
 use settings::Settings;
 use std::{
@@ -21,7 +21,7 @@ use std::{
 use ui::{Color, Icon, IconName, Label, LabelCommon as _, SharedString};
 use util::paths::PathExt as _;
 use workspace::{
-    Item, ItemHandle as _, ItemNavHistory, ToolbarItemLocation, Workspace,
+    Item, ItemHandle as _, ItemNavHistory, Workspace,
     item::{ItemEvent, SaveOptions, TabContentParams},
     searchable::SearchableItemHandle,
 };
@@ -327,14 +327,6 @@ impl Item for FileDiffView {
                 .rhs_editor()
                 .update(cx, |editor, cx| editor.navigate(data, window, cx))
         })
-    }
-
-    fn breadcrumb_location(&self, _: &App) -> ToolbarItemLocation {
-        ToolbarItemLocation::PrimaryLeft
-    }
-
-    fn breadcrumbs(&self, cx: &App) -> Option<(Vec<HighlightedText>, Option<Font>)> {
-        self.editor.breadcrumbs(cx)
     }
 
     fn added_to_workspace(

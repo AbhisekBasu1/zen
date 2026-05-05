@@ -3,18 +3,16 @@ use crate::{
     git_panel::{GitPanel, GitPanelAddon, GitStatusEntry},
     git_panel_settings::GitPanelSettings,
 };
-use agent_settings::AgentSettings;
 use anyhow::{Context as _, Result, anyhow};
 use buffer_diff::{BufferDiff, DiffHunkSecondaryStatus};
 use collections::HashMap;
 use editor::{
     Addon, Editor, EditorEvent, EditorSettings, SelectionEffects, SplittableEditor,
-    actions::{GoToHunk, GoToPreviousHunk, SendReviewToAgent},
+    actions::{GoToHunk, GoToPreviousHunk},
     multibuffer_context_lines,
     scroll::Autoscroll,
 };
 use futures_lite::future::yield_now;
-use git::repository::DiffType;
 
 use git::{
     Commit, StageAll, StageAndNext, ToggleStaged, UnstageAll, UnstageAndNext, repository::RepoPath,
@@ -37,7 +35,7 @@ use settings::{Settings, SettingsStore};
 use std::any::{Any, TypeId};
 use std::sync::Arc;
 use theme::ActiveTheme;
-use ui::{DiffStat, Divider, KeyBinding, Tooltip, prelude::*, vertical_divider};
+use ui::{DiffStat, KeyBinding, Tooltip, prelude::*, vertical_divider};
 use util::{ResultExt as _, rel_path::RelPath};
 use workspace::{
     CloseActiveItem, ItemNavHistory, SerializableItem, ToolbarItemEvent, ToolbarItemLocation,
@@ -46,7 +44,6 @@ use workspace::{
     notifications::NotifyTaskExt,
     searchable::SearchableItemHandle,
 };
-use zed_actions::agent::ReviewBranchDiff;
 use ztracing::instrument;
 
 actions!(
@@ -59,8 +56,6 @@ actions!(
         /// Shows the diff between the working directory and your default
         /// branch (typically main or master).
         BranchDiff,
-        /// Opens a new agent thread with the branch diff for review.
-        ReviewDiff,
         LeaderAndFollower,
     ]
 );
@@ -115,7 +110,6 @@ impl ProjectDiff {
         window: &mut Window,
         cx: &mut Context<Workspace>,
     ) {
-        telemetry::event!("Git Branch Diff Opened");
         let project = workspace.project().clone();
 
         let existing = workspace
@@ -144,66 +138,12 @@ impl ProjectDiff {
             .detach_and_notify_err(workspace_weak, window, cx);
     }
 
-    fn review_diff(&mut self, _: &ReviewDiff, window: &mut Window, cx: &mut Context<Self>) {
-        let diff_base = self.diff_base(cx).clone();
-        let DiffBase::Merge { base_ref } = diff_base else {
-            return;
-        };
-
-        let Some(repo) = self.branch_diff.read(cx).repo().cloned() else {
-            return;
-        };
-
-        let diff_receiver = repo.update(cx, |repo, cx| {
-            repo.diff(
-                DiffType::MergeBase {
-                    base_ref: base_ref.clone(),
-                },
-                cx,
-            )
-        });
-
-        let workspace = self.workspace.clone();
-
-        window
-            .spawn(cx, {
-                let workspace = workspace.clone();
-                async move |cx| {
-                    let diff_text = diff_receiver.await??;
-
-                    if let Some(workspace) = workspace.upgrade() {
-                        workspace.update_in(cx, |_workspace, window, cx| {
-                            window.dispatch_action(
-                                ReviewBranchDiff {
-                                    diff_text: diff_text.into(),
-                                    base_ref: base_ref.to_string().into(),
-                                }
-                                .boxed_clone(),
-                                cx,
-                            );
-                        })?;
-                    }
-
-                    anyhow::Ok(())
-                }
-            })
-            .detach_and_notify_err(workspace, window, cx);
-    }
-
     pub fn deploy_at(
         workspace: &mut Workspace,
         entry: Option<GitStatusEntry>,
         window: &mut Window,
         cx: &mut Context<Workspace>,
     ) {
-        telemetry::event!(
-            "Git Diff Opened",
-            source = if entry.is_some() {
-                "Git Panel"
-            } else {
-                "Action"
-            }
-        );
         let intended_repo = workspace.project().read(cx).active_repository(cx);
 
         let existing = workspace
@@ -259,7 +199,6 @@ impl ProjectDiff {
         window: &mut Window,
         cx: &mut Context<Workspace>,
     ) {
-        telemetry::event!("Git Diff Opened", source = "Agent Panel");
         let existing = workspace
             .items_of_type::<Self>(cx)
             .find(|item| matches!(item.read(cx).diff_base(cx), DiffBase::Head));
@@ -1112,14 +1051,10 @@ impl Item for ProjectDiff {
 impl Render for ProjectDiff {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let is_empty = self.multibuffer.read(cx).is_empty();
-        let is_branch_diff_view = matches!(self.diff_base(cx), DiffBase::Merge { .. });
 
         div()
             .track_focus(&self.focus_handle)
             .key_context(if is_empty { "EmptyPane" } else { "GitDiff" })
-            .when(is_branch_diff_view, |this| {
-                this.on_action(cx.listener(Self::review_diff))
-            })
             .bg(cx.theme().colors().editor_background)
             .flex()
             .items_center()
@@ -1193,18 +1128,16 @@ impl SerializableItem for ProjectDiff {
     fn deserialize(
         project: Entity<Project>,
         workspace: WeakEntity<Workspace>,
-        workspace_id: workspace::WorkspaceId,
-        item_id: workspace::ItemId,
+        _workspace_id: workspace::WorkspaceId,
+        _item_id: workspace::ItemId,
         window: &mut Window,
         cx: &mut App,
     ) -> Task<Result<Entity<Self>>> {
-        let db = persistence::ProjectDiffDb::global(cx);
         window.spawn(cx, async move |cx| {
-            let diff_base = db.get_diff_base(item_id, workspace_id)?;
-
             let diff = cx.update(|window, cx| {
-                let branch_diff = cx
-                    .new(|cx| branch_diff::BranchDiff::new(diff_base, project.clone(), window, cx));
+                let branch_diff = cx.new(|cx| {
+                    branch_diff::BranchDiff::new(DiffBase::Head, project.clone(), window, cx)
+                });
                 let workspace = workspace.upgrade().context("workspace gone")?;
                 anyhow::Ok(
                     cx.new(|cx| ProjectDiff::new_impl(branch_diff, project, workspace, window, cx)),
@@ -1217,100 +1150,17 @@ impl SerializableItem for ProjectDiff {
 
     fn serialize(
         &mut self,
-        workspace: &mut Workspace,
-        item_id: workspace::ItemId,
+        _workspace: &mut Workspace,
+        _item_id: workspace::ItemId,
         _closing: bool,
         _window: &mut Window,
-        cx: &mut Context<Self>,
+        _cx: &mut Context<Self>,
     ) -> Option<Task<Result<()>>> {
-        let workspace_id = workspace.database_id()?;
-        let diff_base = self.diff_base(cx).clone();
-
-        let db = persistence::ProjectDiffDb::global(cx);
-        Some(cx.background_spawn({
-            async move {
-                db.save_diff_base(item_id, workspace_id, diff_base.clone())
-                    .await
-            }
-        }))
+        None
     }
 
     fn should_serialize(&self, _: &Self::Event) -> bool {
         false
-    }
-}
-
-mod persistence {
-
-    use anyhow::Context as _;
-    use db::{
-        sqlez::{domain::Domain, thread_safe_connection::ThreadSafeConnection},
-        sqlez_macros::sql,
-    };
-    use project::git_store::branch_diff::DiffBase;
-    use workspace::{ItemId, WorkspaceDb, WorkspaceId};
-
-    pub struct ProjectDiffDb(ThreadSafeConnection);
-
-    impl Domain for ProjectDiffDb {
-        const NAME: &str = stringify!(ProjectDiffDb);
-
-        const MIGRATIONS: &[&str] = &[sql!(
-                CREATE TABLE project_diffs(
-                    workspace_id INTEGER,
-                    item_id INTEGER UNIQUE,
-
-                    diff_base TEXT,
-
-                    PRIMARY KEY(workspace_id, item_id),
-                    FOREIGN KEY(workspace_id) REFERENCES workspaces(workspace_id)
-                    ON DELETE CASCADE
-                ) STRICT;
-        )];
-    }
-
-    db::static_connection!(ProjectDiffDb, [WorkspaceDb]);
-
-    impl ProjectDiffDb {
-        pub async fn save_diff_base(
-            &self,
-            item_id: ItemId,
-            workspace_id: WorkspaceId,
-            diff_base: DiffBase,
-        ) -> anyhow::Result<()> {
-            self.write(move |connection| {
-                let sql_stmt = sql!(
-                    INSERT OR REPLACE INTO project_diffs(item_id, workspace_id, diff_base) VALUES (?, ?, ?)
-                );
-                let diff_base_str = serde_json::to_string(&diff_base)?;
-                let mut query = connection.exec_bound::<(ItemId, WorkspaceId, String)>(sql_stmt)?;
-                query((item_id, workspace_id, diff_base_str)).context(format!(
-                    "exec_bound failed to execute or parse for: {}",
-                    sql_stmt
-                ))
-            })
-            .await
-        }
-
-        pub fn get_diff_base(
-            &self,
-            item_id: ItemId,
-            workspace_id: WorkspaceId,
-        ) -> anyhow::Result<DiffBase> {
-            let sql_stmt =
-                sql!(SELECT diff_base FROM project_diffs WHERE item_id =  ?AND workspace_id =  ?);
-            let diff_base_str = self.select_row_bound::<(ItemId, WorkspaceId), String>(sql_stmt)?(
-                (item_id, workspace_id),
-            )
-            .context(::std::format!(
-                "Error in get_diff_base, select_row_bound failed to execute or parse for: {}",
-                sql_stmt
-            ))?;
-            let Some(diff_base_str) = diff_base_str else {
-                return Ok(DiffBase::Head);
-            };
-            serde_json::from_str(&diff_base_str).context("deserializing diff base")
-        }
     }
 }
 
@@ -1412,7 +1262,6 @@ impl Render for ProjectDiffToolbar {
         };
         let focus_handle = project_diff.focus_handle(cx);
         let button_states = project_diff.read(cx).button_states(cx);
-        let review_count = project_diff.read(cx).total_review_comment_count();
 
         h_group_xl()
             .my_neg_1()
@@ -1554,34 +1403,7 @@ impl Render for ProjectDiffToolbar {
                             })),
                     ),
             )
-            // "Send Review to Agent" button (only shown when there are review comments)
-            .when(review_count > 0, |el| {
-                el.child(vertical_divider()).child(
-                    render_send_review_to_agent_button(review_count, &focus_handle).on_click(
-                        cx.listener(|this, _, window, cx| {
-                            this.dispatch_action(&SendReviewToAgent, window, cx)
-                        }),
-                    ),
-                )
-            })
     }
-}
-
-fn render_send_review_to_agent_button(review_count: usize, focus_handle: &FocusHandle) -> Button {
-    Button::new(
-        "send-review",
-        format!("Send Review to Agent ({})", review_count),
-    )
-    .start_icon(
-        Icon::new(IconName::ZedAssistant)
-            .size(IconSize::Small)
-            .color(Color::Muted),
-    )
-    .tooltip(Tooltip::for_action_title_in(
-        "Send all review comments to the Agent panel",
-        &SendReviewToAgent,
-        focus_handle,
-    ))
 }
 
 pub struct BranchDiffToolbar {
@@ -1595,16 +1417,6 @@ impl BranchDiffToolbar {
 
     fn project_diff(&self, _: &App) -> Option<Entity<ProjectDiff>> {
         self.project_diff.as_ref()?.upgrade()
-    }
-
-    fn dispatch_action(&self, action: &dyn Action, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(project_diff) = self.project_diff(cx) {
-            project_diff.focus_handle(cx).focus(window, cx);
-        }
-        let action = action.boxed_clone();
-        cx.defer(move |cx| {
-            cx.dispatch_action(action.as_ref());
-        })
     }
 }
 
@@ -1642,14 +1454,9 @@ impl Render for BranchDiffToolbar {
         let Some(project_diff) = self.project_diff(cx) else {
             return div();
         };
-        let focus_handle = project_diff.focus_handle(cx);
-        let review_count = project_diff.read(cx).total_review_comment_count();
         let (additions, deletions) = project_diff.read(cx).calculate_changed_lines(cx);
 
         let is_multibuffer_empty = project_diff.read(cx).multibuffer.read(cx).is_empty();
-        let is_ai_enabled = AgentSettings::get_global(cx).enabled(cx);
-
-        let show_review_button = !is_multibuffer_empty && is_ai_enabled;
 
         h_group_xl()
             .my_neg_1()
@@ -1664,39 +1471,6 @@ impl Render for BranchDiffToolbar {
                     additions as usize,
                     deletions as usize,
                 ))
-            })
-            .when(show_review_button, |this| {
-                let focus_handle = focus_handle.clone();
-                this.child(Divider::vertical()).child(
-                    Button::new("review-diff", "Review Diff")
-                        .start_icon(
-                            Icon::new(IconName::ZedAssistant)
-                                .size(IconSize::Small)
-                                .color(Color::Muted),
-                        )
-                        .key_binding(KeyBinding::for_action_in(&ReviewDiff, &focus_handle, cx))
-                        .tooltip(move |_, cx| {
-                            Tooltip::with_meta_in(
-                                "Review Diff",
-                                Some(&ReviewDiff),
-                                "Send this diff for your last agent to review.",
-                                &focus_handle,
-                                cx,
-                            )
-                        })
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.dispatch_action(&ReviewDiff, window, cx);
-                        })),
-                )
-            })
-            .when(review_count > 0, |this| {
-                this.child(vertical_divider()).child(
-                    render_send_review_to_agent_button(review_count, &focus_handle).on_click(
-                        cx.listener(|this, _, window, cx| {
-                            this.dispatch_action(&SendReviewToAgent, window, cx)
-                        }),
-                    ),
-                )
             })
     }
 }
@@ -1724,10 +1498,10 @@ impl Addon for BranchDiffAddon {
 #[cfg(test)]
 mod tests {
     use collections::HashMap;
-    use db::indoc;
     use editor::test::editor_test_context::{EditorTestContext, assert_state_with_diff};
     use git::status::{TrackedStatus, UnmergedStatus, UnmergedStatusCode};
     use gpui::TestAppContext;
+    use indoc::indoc;
     use project::FakeFs;
     use serde_json::json;
     use settings::{DiffViewStyle, SettingsStore};

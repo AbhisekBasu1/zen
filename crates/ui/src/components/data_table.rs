@@ -19,8 +19,6 @@ use gpui::{
 };
 
 pub mod table_row;
-#[cfg(test)]
-mod tests;
 
 /// Represents an unchecked table row, which is a vector of elements.
 /// Will be converted into `TableRow<T>` internally

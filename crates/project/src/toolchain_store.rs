@@ -20,8 +20,7 @@ use rpc::{
     },
 };
 use settings::WorktreeId;
-use task::Shell;
-use util::{ResultExt as _, rel_path::RelPath};
+use util::{ResultExt as _, rel_path::RelPath, shell::Shell};
 
 use crate::{
     ProjectEnvironment, ProjectPath,

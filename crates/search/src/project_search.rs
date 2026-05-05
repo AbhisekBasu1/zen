@@ -775,7 +775,6 @@ impl Item for ProjectSearchView {
     fn to_item_events(event: &Self::Event, f: &mut dyn FnMut(ItemEvent)) {
         match event {
             ViewEvent::UpdateTab => {
-                f(ItemEvent::UpdateBreadcrumbs);
                 f(ItemEvent::UpdateTab);
             }
             ViewEvent::EditorEvent(editor_event) => {

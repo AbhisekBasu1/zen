@@ -10,7 +10,7 @@ use gpui::{
     App, AppContext, AsyncApp, BorrowAppContext, Entity, Global, SharedString, Task, UpdateGlobal,
 };
 
-use paths::{local_settings_file_relative_path, task_file_name};
+use paths::local_settings_file_relative_path;
 use schemars::{JsonSchema, json_schema};
 use serde_json::Value;
 use settings_content::{ActionName, ParseStatus};
@@ -43,7 +43,7 @@ use crate::{
 
 use settings_json::{infer_json_indent_size, update_value_in_json_text};
 
-pub const LSP_SETTINGS_SCHEMA_URL_PREFIX: &str = "zed://schemas/settings/lsp/";
+pub const LSP_SETTINGS_SCHEMA_URL_PREFIX: &str = "zen://schemas/settings/lsp/";
 
 pub trait SettingsKey: 'static + Send + Sync {
     /// The name of a key within the JSON file from which this setting should
@@ -210,9 +210,7 @@ impl Ord for SettingsFile {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum LocalSettingsKind {
     Settings,
-    Tasks,
     Editorconfig,
-    Debug,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -777,29 +775,15 @@ impl SettingsStore {
         user_settings_content: &str,
         file: SettingsFile,
     ) -> (Option<SettingsContentType>, SettingsParseResult) {
-        let mut migration_status = MigrationStatus::NotNeeded;
         let (settings, parse_status) = if user_settings_content.is_empty() {
             SettingsContentType::parse_json("{}")
         } else {
-            let migration_res = migrator::migrate_settings(user_settings_content);
-            migration_status = match &migration_res {
-                Ok(Some(_)) => MigrationStatus::Succeeded,
-                Ok(None) => MigrationStatus::NotNeeded,
-                Err(err) => MigrationStatus::Failed {
-                    error: err.to_string(),
-                },
-            };
-            let content = match &migration_res {
-                Ok(Some(content)) => content,
-                Ok(None) => user_settings_content,
-                Err(_) => user_settings_content,
-            };
-            SettingsContentType::parse_json(content)
+            SettingsContentType::parse_json(user_settings_content)
         };
 
         let result = SettingsParseResult {
             parse_status,
-            migration_status,
+            migration_status: MigrationStatus::NotNeeded,
         };
         self.file_errors.insert(file, result.clone());
         return (settings, result);
@@ -1032,25 +1016,6 @@ impl SettingsStore {
             .filter(|content| !content.is_empty());
         let mut zed_settings_changed = false;
         match (path.clone(), kind, content) {
-            (LocalSettingsPath::InWorktree(directory_path), LocalSettingsKind::Tasks, _) => {
-                return Err(InvalidSettingsError::Tasks {
-                    message: "Attempted to submit tasks into the settings store".to_string(),
-                    path: directory_path
-                        .join(RelPath::unix(task_file_name()).unwrap())
-                        .as_std_path()
-                        .to_path_buf(),
-                });
-            }
-            (LocalSettingsPath::InWorktree(directory_path), LocalSettingsKind::Debug, _) => {
-                return Err(InvalidSettingsError::Debug {
-                    message: "Attempted to submit debugger config into the settings store"
-                        .to_string(),
-                    path: directory_path
-                        .join(RelPath::unix(task_file_name()).unwrap())
-                        .as_std_path()
-                        .to_path_buf(),
-                });
-            }
             (LocalSettingsPath::InWorktree(directory_path), LocalSettingsKind::Settings, None) => {
                 zed_settings_changed = self
                     .local_settings
@@ -1336,53 +1301,6 @@ impl SettingsStore {
             }
             merged.merge_from_option(self.server_settings.as_deref());
 
-            // Merge `disable_ai` from all project/local settings into the global value.
-            // Since `SaturatingBool` uses OR logic, if any project has `disable_ai: true`,
-            // the global value will be true. This allows project-level `disable_ai` to
-            // affect the global setting used by UI elements without file context.
-            for local_settings in self.local_settings.values() {
-                merged
-                    .project
-                    .disable_ai
-                    .merge_from(&local_settings.project.disable_ai);
-            }
-
-            self.merged_settings = Rc::new(merged);
-
-            for setting_value in self.setting_values.values_mut() {
-                let value = setting_value.from_settings(&self.merged_settings);
-                setting_value.set_global_value(value);
-            }
-        } else {
-            // When only a local path changed, we still need to recompute the global
-            // `disable_ai` value since it depends on all local settings.
-            let mut merged = (*self.merged_settings).clone();
-            // Reset disable_ai to compute fresh from base settings
-            merged.project.disable_ai = self.default_settings.project.disable_ai;
-            if let Some(global) = &self.global_settings {
-                merged
-                    .project
-                    .disable_ai
-                    .merge_from(&global.project.disable_ai);
-            }
-            if let Some(user) = &self.user_settings {
-                merged
-                    .project
-                    .disable_ai
-                    .merge_from(&user.content.project.disable_ai);
-            }
-            if let Some(server) = &self.server_settings {
-                merged
-                    .project
-                    .disable_ai
-                    .merge_from(&server.project.disable_ai);
-            }
-            for local_settings in self.local_settings.values() {
-                merged
-                    .project
-                    .disable_ai
-                    .merge_from(&local_settings.project.disable_ai);
-            }
             self.merged_settings = Rc::new(merged);
 
             for setting_value in self.setting_values.values_mut() {
@@ -1531,14 +1449,6 @@ pub enum InvalidSettingsError {
         path: LocalSettingsPath,
         message: String,
     },
-    Tasks {
-        path: PathBuf,
-        message: String,
-    },
-    Debug {
-        path: PathBuf,
-        message: String,
-    },
 }
 
 impl std::fmt::Display for InvalidSettingsError {
@@ -1548,9 +1458,7 @@ impl std::fmt::Display for InvalidSettingsError {
             | InvalidSettingsError::UserSettings { message }
             | InvalidSettingsError::ServerSettings { message }
             | InvalidSettingsError::DefaultSettings { message }
-            | InvalidSettingsError::Tasks { message, .. }
-            | InvalidSettingsError::Editorconfig { message, .. }
-            | InvalidSettingsError::Debug { message, .. } => write!(f, "{message}"),
+            | InvalidSettingsError::Editorconfig { message, .. } => write!(f, "{message}"),
         }
     }
 }
@@ -1786,11 +1694,6 @@ mod tests {
 
     #[gpui::test]
     fn test_default_settings_release_channel_overrides(cx: &mut App) {
-        // The test deals with overrides and should ignore the other set-ups (Preview and Stable runs)
-        if *release_channel::RELEASE_CHANNEL != release_channel::ReleaseChannel::Dev {
-            return;
-        }
-
         let mut defaults: serde_json::Value =
             crate::parse_json_with_comments(&default_settings()).unwrap();
         let root = defaults
@@ -2235,9 +2138,6 @@ mod tests {
               "project_panel": {
                 "git_status": true
               },
-              "outline_panel": {
-                "git_status": true
-              },
               "base_keymap": "VSCode",
               "tabs": {
                 "git_status": true
@@ -2386,28 +2286,6 @@ mod tests {
                 "bell": "off"
               },
               "base_keymap": "VSCode"
-            }
-            "#
-            .unindent(),
-            cx,
-        );
-
-        // hover sticky settings
-        check_vscode_import(
-            &mut store,
-            r#"{
-            }
-            "#
-            .unindent(),
-            r#"{
-              "editor.hover.sticky": false,
-              "editor.hover.hidingDelay": 500
-            }"#
-            .to_owned(),
-            r#"{
-              "base_keymap": "VSCode",
-              "hover_popover_hiding_delay": 500,
-              "hover_popover_sticky": false
             }
             "#
             .unindent(),
@@ -2878,9 +2756,9 @@ mod tests {
 
         let schema = SettingsStore::json_schema(&SettingsJsonSchemaParams {
             language_names: &["Rust".to_string(), "TypeScript".to_string()],
-            font_names: &["Zed Mono".to_string()],
+            font_names: &["Zen Mono".to_string()],
             theme_names: &["One Dark".into()],
-            icon_theme_names: &["Zed Icons".into()],
+            icon_theme_names: &["Zen Icons".into()],
             lsp_adapter_names: &[
                 "rust-analyzer".to_string(),
                 "typescript-language-server".to_string(),
@@ -2910,7 +2788,7 @@ mod tests {
 
         assert_eq!(
             init_options_ref,
-            "zed://schemas/settings/lsp/rust-analyzer/initialization_options"
+            "zen://schemas/settings/lsp/rust-analyzer/initialization_options"
         );
 
         let settings_ref = properties
@@ -2923,7 +2801,7 @@ mod tests {
 
         assert_eq!(
             settings_ref,
-            "zed://schemas/settings/lsp/rust-analyzer/settings"
+            "zen://schemas/settings/lsp/rust-analyzer/settings"
         );
     }
 
@@ -2933,9 +2811,9 @@ mod tests {
 
         let schema = SettingsStore::project_json_schema(&SettingsJsonSchemaParams {
             language_names: &["Rust".to_string(), "TypeScript".to_string()],
-            font_names: &["Zed Mono".to_string()],
+            font_names: &["Zen Mono".to_string()],
             theme_names: &["One Dark".into()],
-            icon_theme_names: &["Zed Icons".into()],
+            icon_theme_names: &["Zen Icons".into()],
             lsp_adapter_names: &[
                 "rust-analyzer".to_string(),
                 "typescript-language-server".to_string(),
@@ -2965,7 +2843,7 @@ mod tests {
 
         assert_eq!(
             init_options_ref,
-            "zed://schemas/settings/lsp/rust-analyzer/initialization_options"
+            "zen://schemas/settings/lsp/rust-analyzer/initialization_options"
         );
 
         let settings_ref = properties
@@ -2978,7 +2856,7 @@ mod tests {
 
         assert_eq!(
             settings_ref,
-            "zed://schemas/settings/lsp/rust-analyzer/settings"
+            "zen://schemas/settings/lsp/rust-analyzer/settings"
         );
     }
 
@@ -2988,9 +2866,9 @@ mod tests {
 
         let params = SettingsJsonSchemaParams {
             language_names: &["Rust".to_string()],
-            font_names: &["Zed Mono".to_string()],
+            font_names: &["Zen Mono".to_string()],
             theme_names: &["One Dark".into()],
-            icon_theme_names: &["Zed Icons".into()],
+            icon_theme_names: &["Zen Icons".into()],
             lsp_adapter_names: &["rust-analyzer".to_string()],
             action_names: &[],
             action_documentation: &HashMap::default(),

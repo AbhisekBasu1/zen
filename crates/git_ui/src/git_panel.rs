@@ -9,48 +9,40 @@ use crate::{branch_picker, picker_prompt, render_remote_button};
 use crate::{
     git_panel_settings::GitPanelSettings, git_status_icon, repository_selector::RepositorySelector,
 };
-use agent_settings::AgentSettings;
-use alacritty_terminal::vte::ansi;
 use anyhow::Context as _;
-use askpass::AskPassDelegate;
 use collections::{BTreeMap, HashMap, HashSet};
-use db::kvp::KeyValueStore;
 use editor::{
     Direction, Editor, EditorElement, EditorMode, MultiBuffer, MultiBufferOffset, SizingBehavior,
     actions::ExpandAllDiffHunks,
 };
 use editor::{EditorStyle, RewrapOptions};
 use file_icons::FileIcons;
-use futures::StreamExt as _;
 use futures::channel::oneshot::Canceled;
 use git::commit::ParsedCommitMessage;
 use git::repository::{
-    Branch, CommitDetails, CommitOptions, CommitSummary, DiffType, FetchOptions, GitCommitTemplate,
+    Branch, CommitDetails, CommitOptions, CommitSummary, FetchOptions, GitCommitTemplate,
     GitCommitter, PushOptions, Remote, RemoteCommandOutput, ResetMode, Upstream, UpstreamTracking,
     UpstreamTrackingStatus, get_git_committer,
 };
 use git::stash::GitStash;
 use git::status::{DiffStat, StageStatus};
-use git::{Amend, Signoff, ToggleStaged, repository::RepoPath, status::FileStatus};
+use git::{
+    Amend, AskPassDelegate, Signoff, ToggleStaged, repository::RepoPath, status::FileStatus,
+};
 use git::{
     ExpandCommitEditor, GitHostingProviderRegistry, RestoreTrackedFiles, StageAll, StashAll,
     StashApply, StashPop, ToggleFillCommitEditor, TrashUntrackedFiles, UnstageAll,
 };
 use gpui::{
-    AbsoluteLength, Action, Anchor, AsyncApp, AsyncWindowContext, Bounds, ClickEvent, DismissEvent,
-    Empty, Entity, EventEmitter, FocusHandle, Focusable, KeyContext, MouseButton, MouseDownEvent,
-    Point, PromptLevel, ScrollStrategy, Subscription, Task, TextStyle, UniformListScrollHandle,
+    AbsoluteLength, Action, Anchor, AsyncWindowContext, Bounds, ClickEvent, DismissEvent, Empty,
+    Entity, EventEmitter, FocusHandle, Focusable, KeyContext, MouseButton, MouseDownEvent, Point,
+    PromptLevel, ScrollStrategy, Subscription, Task, TextStyle, UniformListScrollHandle,
     WeakEntity, actions, anchored, deferred, point, size, uniform_list,
 };
 use itertools::Itertools;
 use language::{Buffer, File};
-use language_model::{
-    CompletionIntent, ConfiguredModel, LanguageModelRegistry, LanguageModelRequest,
-    LanguageModelRequestMessage, Role,
-};
 use menu;
 use multi_buffer::ExcerptBoundaryInfo;
-use notifications::status_toast::StatusToast;
 use panel::{PanelHeader, panel_button, panel_filled_button, panel_icon_button};
 use project::git_store::GitAccess;
 use project::{
@@ -58,9 +50,7 @@ use project::{
     git_store::{GitStoreEvent, Repository, RepositoryEvent, RepositoryId, pending_op},
     project_settings::{GitPathStyle, ProjectSettings},
 };
-use prompt_store::{BuiltInPrompt, PromptId, PromptStore, RULES_FILE_NAMES};
 use proto::RpcError;
-use serde::{Deserialize, Serialize};
 use settings::{Settings, SettingsStore, StatusStyle};
 use smallvec::SmallVec;
 use std::future::Future;
@@ -72,16 +62,14 @@ use theme_settings::ThemeSettings;
 use time::OffsetDateTime;
 use ui::{
     ButtonLike, Checkbox, ContextMenu, ElevationIndex, IndentGuideColors, PopoverMenu,
-    RenderedIndentGuide, ScrollAxes, Scrollbars, SplitButton, TintColor, Tooltip, WithScrollbar,
-    prelude::*,
+    RenderedIndentGuide, ScrollAxes, Scrollbars, SplitButton, Tooltip, WithScrollbar, prelude::*,
 };
 use util::paths::PathStyle;
-use util::{ResultExt, TryFutureExt, maybe, rel_path::RelPath};
-use workspace::SERIALIZATION_THROTTLE_TIME;
+use util::{ResultExt, maybe};
 use workspace::{
     Workspace,
     dock::{DockPosition, Panel, PanelEvent},
-    notifications::{DetachAndPromptErr, ErrorMessagePrompt, NotificationId, NotifyResultExt},
+    notifications::{DetachAndPromptErr, NotifyResultExt, status_toast::StatusToast},
 };
 
 actions!(
@@ -191,7 +179,7 @@ fn git_panel_context_menu(
                 StashAll.boxed_clone(),
             )
             .action_disabled_when(!state.has_stash_items, "Stash Pop", StashPop.boxed_clone())
-            .action("View Stash", zed_actions::git::ViewStash.boxed_clone())
+            .action("View Stash", zen_actions::git::ViewStash.boxed_clone())
             .separator()
             .action("Open Diff", project_diff::Diff.boxed_clone())
             .separator()
@@ -264,14 +252,6 @@ pub fn register(workspace: &mut Workspace) {
 #[derive(Debug, Clone)]
 pub enum Event {
     Focus,
-}
-
-#[derive(Serialize, Deserialize)]
-struct SerializedGitPanel {
-    #[serde(default)]
-    amend_pending: bool,
-    #[serde(default)]
-    signoff_enabled: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -631,7 +611,6 @@ pub struct GitPanel {
     conflicted_count: usize,
     conflicted_staged_count: usize,
     add_coauthors: bool,
-    generate_commit_message_task: Option<Task<Option<()>>>,
     entries: Vec<GitListEntry>,
     view_mode: GitPanelViewMode,
     entries_indices: HashMap<RepoPath, usize>,
@@ -647,7 +626,6 @@ pub struct GitPanel {
     amend_pending: bool,
     original_commit_message: Option<String>,
     signoff_enabled: bool,
-    pending_serialization: Task<()>,
     pub(crate) project: Entity<Project>,
     scroll_handle: UniformListScrollHandle,
     max_width_item_index: Option<usize>,
@@ -666,7 +644,6 @@ pub struct GitPanel {
     bulk_staging: Option<BulkStaging>,
     stash_entries: GitStash,
 
-    _settings_subscription: Subscription,
     git_access: GitAccess,
 }
 
@@ -778,15 +755,6 @@ impl GitPanel {
 
             let scroll_handle = UniformListScrollHandle::new();
 
-            let mut was_ai_enabled = AgentSettings::get_global(cx).enabled(cx);
-            let _settings_subscription = cx.observe_global::<SettingsStore>(move |_, cx| {
-                let is_ai_enabled = AgentSettings::get_global(cx).enabled(cx);
-                if was_ai_enabled != is_ai_enabled {
-                    was_ai_enabled = is_ai_enabled;
-                    cx.notify();
-                }
-            });
-
             cx.subscribe_in(
                 &git_store,
                 window,
@@ -822,7 +790,6 @@ impl GitPanel {
                 conflicted_count: 0,
                 conflicted_staged_count: 0,
                 add_coauthors: true,
-                generate_commit_message_task: None,
                 entries: Vec::new(),
                 view_mode: GitPanelViewMode::from_settings(cx),
                 entries_indices: HashMap::default(),
@@ -835,7 +802,6 @@ impl GitPanel {
                 amend_pending: false,
                 original_commit_message: None,
                 signoff_enabled: false,
-                pending_serialization: Task::ready(()),
                 single_staged_entry: None,
                 single_tracked_entry: None,
                 project,
@@ -856,7 +822,6 @@ impl GitPanel {
                 entry_count: 0,
                 bulk_staging: None,
                 stash_entries: Default::default(),
-                _settings_subscription,
                 git_access: GitAccess::Yes,
             };
 
@@ -929,54 +894,6 @@ impl GitPanel {
 
         self.selected_entry = Some(ix);
         self.scroll_to_selected_entry(cx);
-    }
-
-    fn serialization_key(workspace: &Workspace) -> Option<String> {
-        workspace
-            .database_id()
-            .map(|id| i64::from(id).to_string())
-            .or(workspace.session_id())
-            .map(|id| format!("{}-{:?}", GIT_PANEL_KEY, id))
-    }
-
-    fn serialize(&mut self, cx: &mut Context<Self>) {
-        let amend_pending = self.amend_pending;
-        let signoff_enabled = self.signoff_enabled;
-        let kvp = KeyValueStore::global(cx);
-
-        self.pending_serialization = cx.spawn(async move |git_panel, cx| {
-            cx.background_executor()
-                .timer(SERIALIZATION_THROTTLE_TIME)
-                .await;
-            let Some(serialization_key) = git_panel
-                .update(cx, |git_panel, cx| {
-                    git_panel
-                        .workspace
-                        .read_with(cx, |workspace, _| Self::serialization_key(workspace))
-                        .ok()
-                        .flatten()
-                })
-                .ok()
-                .flatten()
-            else {
-                return;
-            };
-            cx.background_spawn(
-                async move {
-                    kvp.write_kvp(
-                        serialization_key,
-                        serde_json::to_string(&SerializedGitPanel {
-                            amend_pending,
-                            signoff_enabled,
-                        })?,
-                    )
-                    .await?;
-                    anyhow::Ok(())
-                }
-                .log_err(),
-            )
-            .await;
-        });
     }
 
     pub(crate) fn set_modal_open(&mut self, open: bool, cx: &mut Context<Self>) {
@@ -2111,9 +2028,7 @@ impl GitPanel {
     }
 
     fn on_commit(&mut self, _: &git::Commit, window: &mut Window, cx: &mut Context<Self>) {
-        if self.commit(&self.commit_editor.focus_handle(cx), window, cx) {
-            telemetry::event!("Git Committed", source = "Git Panel");
-        }
+        self.commit(&self.commit_editor.focus_handle(cx), window, cx);
     }
 
     /// Commits staged changes with the current commit message.
@@ -2147,9 +2062,7 @@ impl GitPanel {
     }
 
     fn on_amend(&mut self, _: &git::Amend, window: &mut Window, cx: &mut Context<Self>) {
-        if self.amend(&self.commit_editor.focus_handle(cx), window, cx) {
-            telemetry::event!("Git Amended", source = "Git Panel");
-        }
+        self.amend(&self.commit_editor.focus_handle(cx), window, cx);
     }
 
     /// Amends the most recent commit with staged changes and/or an updated commit message.
@@ -2371,7 +2284,6 @@ impl GitPanel {
         let Some(repo) = self.active_repository.clone() else {
             return;
         };
-        telemetry::event!("Git Uncommitted");
 
         let confirmation = self.check_for_pushed_commits(window, cx);
         let prior_head = self.load_commit_details("HEAD".to_string(), cx);
@@ -2490,15 +2402,6 @@ impl GitPanel {
         Some(format!("{} {}", action_text, file_name))
     }
 
-    fn generate_commit_message_action(
-        &mut self,
-        _: &git::GenerateCommitMessage,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.generate_commit_message(cx);
-    }
-
     fn split_patch(patch: &str) -> Vec<String> {
         let mut result = Vec::new();
         let mut current_patch = String::new();
@@ -2589,216 +2492,6 @@ impl GitPanel {
         compressed
     }
 
-    async fn load_project_rules(
-        project: &Entity<Project>,
-        repo_work_dir: &Arc<Path>,
-        cx: &mut AsyncApp,
-    ) -> Option<String> {
-        let rules_path = cx.update(|cx| {
-            for worktree in project.read(cx).worktrees(cx) {
-                let worktree_abs_path = worktree.read(cx).abs_path();
-                if !worktree_abs_path.starts_with(&repo_work_dir) {
-                    continue;
-                }
-
-                let worktree_snapshot = worktree.read(cx).snapshot();
-                for rules_name in RULES_FILE_NAMES {
-                    if let Ok(rel_path) = RelPath::unix(rules_name) {
-                        if let Some(entry) = worktree_snapshot.entry_for_path(rel_path) {
-                            if entry.is_file() {
-                                return Some(ProjectPath {
-                                    worktree_id: worktree.read(cx).id(),
-                                    path: entry.path.clone(),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            None
-        })?;
-
-        let buffer = project
-            .update(cx, |project, cx| project.open_buffer(rules_path, cx))
-            .await
-            .ok()?;
-
-        let content = buffer
-            .read_with(cx, |buffer, _| buffer.text())
-            .trim()
-            .to_string();
-
-        if content.is_empty() {
-            None
-        } else {
-            Some(content)
-        }
-    }
-
-    async fn load_commit_message_prompt(cx: &mut AsyncApp) -> String {
-        let load = async {
-            let store = cx.update(|cx| PromptStore::global(cx)).await.ok()?;
-            store
-                .update(cx, |s, cx| {
-                    s.load(PromptId::BuiltIn(BuiltInPrompt::CommitMessage), cx)
-                })
-                .await
-                .ok()
-        };
-        load.await
-            .unwrap_or_else(|| BuiltInPrompt::CommitMessage.default_content().to_string())
-    }
-
-    /// Generates a commit message using an LLM.
-    pub fn generate_commit_message(&mut self, cx: &mut Context<Self>) {
-        if !self.can_commit() || !AgentSettings::get_global(cx).enabled(cx) {
-            return;
-        }
-
-        let Some(ConfiguredModel { provider, model }) =
-            LanguageModelRegistry::read_global(cx).commit_message_model(cx)
-        else {
-            return;
-        };
-
-        let Some(repo) = self.active_repository.as_ref() else {
-            return;
-        };
-
-        telemetry::event!("Git Commit Message Generated");
-
-        let diff = repo.update(cx, |repo, cx| {
-            if self.has_staged_changes() {
-                repo.diff(DiffType::HeadToIndex, cx)
-            } else {
-                repo.diff(DiffType::HeadToWorktree, cx)
-            }
-        });
-
-        let temperature = AgentSettings::temperature_for_model(&model, cx);
-        let project = self.project.clone();
-        let repo_work_dir = repo.read(cx).work_directory_abs_path.clone();
-
-        self.generate_commit_message_task = Some(cx.spawn(async move |this, mut cx| {
-             async move {
-                let _defer = cx.on_drop(&this, |this, _cx| {
-                    this.generate_commit_message_task.take();
-                });
-
-                if let Some(task) = cx.update(|cx| {
-                    if !provider.is_authenticated(cx) {
-                        Some(provider.authenticate(cx))
-                    } else {
-                        None
-                    }
-                }) {
-                    task.await.log_err();
-                }
-
-                let mut diff_text = match diff.await {
-                    Ok(result) => match result {
-                        Ok(text) => text,
-                        Err(e) => {
-                            Self::show_commit_message_error(&this, &e, cx);
-                            return anyhow::Ok(());
-                        }
-                    },
-                    Err(e) => {
-                        Self::show_commit_message_error(&this, &e, cx);
-                        return anyhow::Ok(());
-                    }
-                };
-
-                const MAX_DIFF_BYTES: usize = 20_000;
-                diff_text = Self::compress_commit_diff(&diff_text, MAX_DIFF_BYTES);
-
-                let rules_content = Self::load_project_rules(&project, &repo_work_dir, &mut cx).await;
-
-                let prompt = Self::load_commit_message_prompt(&mut cx).await;
-
-                let subject = this.update(cx, |this, cx| {
-                    this.commit_editor.read(cx).text(cx).lines().next().map(ToOwned::to_owned).unwrap_or_default()
-                })?;
-
-                let text_empty = subject.trim().is_empty();
-
-                let rules_section = match &rules_content {
-                    Some(rules) => format!(
-                        "\n\nThe user has provided the following project rules that you should follow when writing the commit message:\n\
-                        <project_rules>\n{rules}\n</project_rules>\n"
-                    ),
-                    None => String::new(),
-                };
-
-                let subject_section = if text_empty {
-                    String::new()
-                } else {
-                    format!("\nHere is the user's subject line:\n{subject}")
-                };
-
-                let content = format!(
-                    "{prompt}{rules_section}{subject_section}\nHere are the changes in this commit:\n{diff_text}"
-                );
-
-                let request = LanguageModelRequest {
-                    thread_id: None,
-                    prompt_id: None,
-                    intent: Some(CompletionIntent::GenerateGitCommitMessage),
-                    messages: vec![LanguageModelRequestMessage {
-                        role: Role::User,
-                        content: vec![content.into()],
-                        cache: false,
-                        reasoning_details: None,
-                    }],
-                    tools: Vec::new(),
-                    tool_choice: None,
-                    stop: Vec::new(),
-                    temperature,
-                    thinking_allowed: false,
-                    thinking_effort: None,
-                    speed: None,
-                };
-
-                let stream = model.stream_completion_text(request, cx);
-                match stream.await {
-                    Ok(mut messages) => {
-                        if !text_empty {
-                            this.update(cx, |this, cx| {
-                                this.commit_message_buffer(cx).update(cx, |buffer, cx| {
-                                    let insert_position = buffer.anchor_before(buffer.len());
-                                    buffer.edit([(insert_position..insert_position, "\n")], None, cx)
-                                });
-                            })?;
-                        }
-
-                        while let Some(message) = messages.stream.next().await {
-                            match message {
-                                Ok(text) => {
-                                    this.update(cx, |this, cx| {
-                                        this.commit_message_buffer(cx).update(cx, |buffer, cx| {
-                                            let insert_position = buffer.anchor_before(buffer.len());
-                                            buffer.edit([(insert_position..insert_position, text)], None, cx);
-                                        });
-                                    })?;
-                                }
-                                Err(e) => {
-                                    Self::show_commit_message_error(&this, &e, cx);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        Self::show_commit_message_error(&this, &e, cx);
-                    }
-                }
-
-                anyhow::Ok(())
-            }
-            .log_err().await
-        }));
-    }
-
     fn get_fetch_options(
         &self,
         window: &mut Window,
@@ -2848,7 +2541,6 @@ impl GitPanel {
         let Some(repo) = self.active_repository.clone() else {
             return;
         };
-        telemetry::event!("Git Fetched");
         let askpass = self.askpass_delegate("git fetch", window, cx);
         let this = cx.weak_entity();
 
@@ -2993,7 +2685,6 @@ impl GitPanel {
         let Some(branch) = repo.read(cx).branch.as_ref() else {
             return;
         };
-        telemetry::event!("Git Pulled");
         let branch = branch.clone();
         let remote = self.get_remote(false, false, window, cx);
         cx.spawn_in(window, async move |this, cx| {
@@ -3056,7 +2747,6 @@ impl GitPanel {
         let Some(branch) = repo.read(cx).branch.as_ref() else {
             return;
         };
-        telemetry::event!("Git Pushed");
         let branch = branch.clone();
 
         let options = if force_push {
@@ -3312,57 +3002,8 @@ impl GitPanel {
         }
     }
 
-    fn potential_co_authors(&self, cx: &App) -> Vec<(String, String)> {
-        let mut new_co_authors = Vec::new();
-        let project = self.project.read(cx);
-
-        let Some(room) =
-            call::ActiveCall::try_global(cx).and_then(|call| call.read(cx).room().cloned())
-        else {
-            return Vec::default();
-        };
-
-        let room = room.read(cx);
-
-        for (peer_id, collaborator) in project.collaborators() {
-            if collaborator.is_host {
-                continue;
-            }
-
-            let Some(participant) = room.remote_participant_for_peer_id(*peer_id) else {
-                continue;
-            };
-            if !participant.can_write() {
-                continue;
-            }
-            if let Some(email) = &collaborator.committer_email {
-                let name = collaborator
-                    .committer_name
-                    .clone()
-                    .or_else(|| participant.user.name.clone())
-                    .unwrap_or_else(|| participant.user.github_login.clone().to_string());
-                new_co_authors.push((name.clone(), email.clone()))
-            }
-        }
-        if !project.is_local()
-            && !project.is_read_only(cx)
-            && let Some(local_committer) = self.local_committer(room, cx)
-        {
-            new_co_authors.push(local_committer);
-        }
-        new_co_authors
-    }
-
-    fn local_committer(&self, room: &call::Room, cx: &App) -> Option<(String, String)> {
-        let user = room.local_participant_user(cx)?;
-        let committer = self.local_committer.as_ref()?;
-        let email = committer.email.clone()?;
-        let name = committer
-            .name
-            .clone()
-            .or_else(|| user.name.clone())
-            .unwrap_or_else(|| user.github_login.clone().to_string());
-        Some((name, email))
+    fn potential_co_authors(&self, _cx: &App) -> Vec<(String, String)> {
+        Vec::new()
     }
 
     fn toggle_fill_co_authors(
@@ -3880,26 +3521,6 @@ impl GitPanel {
         show_error_toast(workspace, action, e, cx)
     }
 
-    fn show_commit_message_error<E>(weak_this: &WeakEntity<Self>, err: &E, cx: &mut AsyncApp)
-    where
-        E: std::fmt::Debug + std::fmt::Display,
-    {
-        if let Ok(Some(workspace)) = weak_this.update(cx, |this, _cx| this.workspace.upgrade()) {
-            let _ = workspace.update(cx, |workspace, cx| {
-                struct CommitMessageError;
-                let notification_id = NotificationId::unique::<CommitMessageError>();
-                workspace.show_notification(notification_id, cx, |cx| {
-                    cx.new(|cx| {
-                        ErrorMessagePrompt::new(
-                            format!("Failed to generate commit message: {err}"),
-                            cx,
-                        )
-                    })
-                });
-            });
-        }
-    }
-
     fn show_remote_output(
         &mut self,
         action: RemoteAction,
@@ -4058,76 +3679,6 @@ impl GitPanel {
                 ))
             })
             .anchor(Anchor::TopRight)
-    }
-
-    pub(crate) fn render_generate_commit_message_button(
-        &self,
-        cx: &Context<Self>,
-    ) -> Option<AnyElement> {
-        if !agent_settings::AgentSettings::get_global(cx).enabled(cx) {
-            return None;
-        }
-
-        if self.generate_commit_message_task.is_some() {
-            return Some(
-                h_flex()
-                    .gap_1()
-                    .child(
-                        IconButton::new("cancel-generate-commit-message", IconName::Stop)
-                            .icon_color(Color::Error)
-                            .icon_size(IconSize::Small)
-                            .style(ButtonStyle::Tinted(TintColor::Error))
-                            .tooltip(Tooltip::text("Cancel Commit Message Generation"))
-                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                this.generate_commit_message_task.take();
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Label::new("Generating Commit…")
-                            .size(LabelSize::Small)
-                            .color(Color::Muted),
-                    )
-                    .into_any_element(),
-            );
-        }
-
-        let model_registry = LanguageModelRegistry::read_global(cx);
-        let has_commit_model_configuration_error = model_registry
-            .configuration_error(model_registry.commit_message_model(cx), cx)
-            .is_some();
-        let can_commit = self.can_commit();
-
-        let editor_focus_handle = self.commit_editor.focus_handle(cx);
-
-        Some(
-            IconButton::new("generate-commit-message", IconName::AiEdit)
-                .shape(ui::IconButtonShape::Square)
-                .icon_color(if has_commit_model_configuration_error {
-                    Color::Disabled
-                } else {
-                    Color::Muted
-                })
-                .tooltip(move |_window, cx| {
-                    if !can_commit {
-                        Tooltip::simple("No Changes to Commit", cx)
-                    } else if has_commit_model_configuration_error {
-                        Tooltip::simple("Configure an LLM provider to generate commit messages", cx)
-                    } else {
-                        Tooltip::for_action_in(
-                            "Generate Commit Message",
-                            &git::GenerateCommitMessage,
-                            &editor_focus_handle,
-                            cx,
-                        )
-                    }
-                })
-                .disabled(!can_commit || has_commit_model_configuration_error)
-                .on_click(cx.listener(move |this, _event, _window, cx| {
-                    this.generate_commit_message(cx);
-                }))
-                .into_any_element(),
-        )
     }
 
     pub(crate) fn render_co_authors(&self, cx: &Context<Self>) -> Option<AnyElement> {
@@ -4509,10 +4060,7 @@ impl GitPanel {
                             .h(footer_size)
                             .flex_none()
                             .justify_between()
-                            .child(
-                                self.render_generate_commit_message_button(cx)
-                                    .unwrap_or_else(|| div().into_any_element()),
-                            )
+                            .child(div())
                             .child(
                                 h_flex()
                                     .gap_0p5()
@@ -4526,10 +4074,10 @@ impl GitPanel {
                                 this.flex_1().min_h_0().pb(footer_size)
                             })
                             .pr_2p5()
-                            .on_action(|&zed_actions::editor::MoveUp, _, cx| {
+                            .on_action(|&zen_actions::editor::MoveUp, _, cx| {
                                 cx.stop_propagation();
                             })
-                            .on_action(|&zed_actions::editor::MoveDown, _, cx| {
+                            .on_action(|&zen_actions::editor::MoveDown, _, cx| {
                                 cx.stop_propagation();
                             })
                             .child(EditorElement::new(&self.commit_editor, panel_editor_style)),
@@ -4634,7 +4182,6 @@ impl GitPanel {
                 .on_click({
                     let git_panel = cx.weak_entity();
                     move |_, window, cx| {
-                        telemetry::event!("Git Committed", source = "Git Panel");
                         git_panel
                             .update(cx, |git_panel, cx| {
                                 git_panel.commit_changes(
@@ -5814,7 +5361,6 @@ impl GitPanel {
         }
 
         self.amend_pending = value;
-        self.serialize(cx);
         cx.notify();
     }
 
@@ -5824,7 +5370,6 @@ impl GitPanel {
 
     pub fn set_signoff_enabled(&mut self, value: bool, cx: &mut Context<Self>) {
         self.signoff_enabled = value;
-        self.serialize(cx);
         cx.notify();
     }
 
@@ -5841,38 +5386,8 @@ impl GitPanel {
         workspace: WeakEntity<Workspace>,
         mut cx: AsyncWindowContext,
     ) -> anyhow::Result<Entity<Self>> {
-        let serialized_panel = match workspace
-            .read_with(&cx, |workspace, cx| {
-                Self::serialization_key(workspace).map(|key| (key, KeyValueStore::global(cx)))
-            })
-            .ok()
-            .flatten()
-        {
-            Some((serialization_key, kvp)) => cx
-                .background_spawn(async move { kvp.read_kvp(&serialization_key) })
-                .await
-                .context("loading git panel")
-                .log_err()
-                .flatten()
-                .map(|panel| serde_json::from_str::<SerializedGitPanel>(&panel))
-                .transpose()
-                .log_err()
-                .flatten(),
-            None => None,
-        };
-
         workspace.update_in(&mut cx, |workspace, window, cx| {
-            let panel = GitPanel::new(workspace, window, cx);
-
-            if let Some(serialized_panel) = serialized_panel {
-                panel.update(cx, |panel, cx| {
-                    panel.amend_pending = serialized_panel.amend_pending;
-                    panel.signoff_enabled = serialized_panel.signoff_enabled;
-                    cx.notify();
-                })
-            }
-
-            panel
+            GitPanel::new(workspace, window, cx)
         })
     }
 
@@ -5949,19 +5464,9 @@ impl Render for GitPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let project = self.project.read(cx);
         let has_entries = !self.entries.is_empty();
-        let room = self.workspace.upgrade().and_then(|_workspace| {
-            call::ActiveCall::try_global(cx).and_then(|call| call.read(cx).room().cloned())
-        });
-
         let has_write_access = self.has_write_access(cx);
 
-        let has_co_authors = room.is_some_and(|room| {
-            self.load_local_committer(cx);
-            let room = room.read(cx);
-            room.remote_participants()
-                .values()
-                .any(|remote_participant| remote_participant.can_write())
-        });
+        let has_co_authors = false;
 
         v_flex()
             .id("git_panel")
@@ -5981,7 +5486,6 @@ impl Render for GitPanel {
                     .on_action(cx.listener(Self::revert_selected))
                     .on_action(cx.listener(Self::add_to_gitignore))
                     .on_action(cx.listener(Self::clean_all))
-                    .on_action(cx.listener(Self::generate_commit_message_action))
                     .on_action(cx.listener(Self::stash_all))
                     .on_action(cx.listener(Self::stash_pop))
             })
@@ -6406,7 +5910,7 @@ impl RenderOnce for PanelRepoFooter {
             .label_size(LabelSize::Small)
             .truncate(true)
             .on_click(|_, window, cx| {
-                window.dispatch_action(zed_actions::git::Switch.boxed_clone(), cx);
+                window.dispatch_action(zen_actions::git::Switch.boxed_clone(), cx);
             });
 
         let branch_selector = PopoverMenu::new("popover-button")
@@ -6417,7 +5921,7 @@ impl RenderOnce for PanelRepoFooter {
             })
             .trigger_with_tooltip(
                 branch_selector_button,
-                Tooltip::for_action_title("Switch Branch", &zed_actions::git::Switch),
+                Tooltip::for_action_title("Switch Branch", &zen_actions::git::Switch),
             )
             .anchor(Anchor::BottomLeft)
             .offset(gpui::Point {
@@ -6724,10 +6228,7 @@ fn open_output(
 ) {
     let operation = operation.into();
 
-    let mut handler = GitOutputHandler::default();
-    let mut processor = ansi::Processor::<ansi::StdSyncHandler>::default();
-    processor.advance(&mut handler, output.as_bytes());
-    let plain_text = handler.output;
+    let plain_text = sanitize_git_output(output);
 
     let buffer = cx.new(|cx| Buffer::local(plain_text.as_str(), cx));
     buffer.update(cx, |buffer, cx| {
@@ -6745,30 +6246,51 @@ fn open_output(
     workspace.add_item_to_center(Box::new(editor), window, cx);
 }
 
-#[derive(Default)]
-struct GitOutputHandler {
-    output: String,
-    line_start: usize,
-}
-
-impl ansi::Handler for GitOutputHandler {
-    fn input(&mut self, c: char) {
-        self.output.push(c);
+fn sanitize_git_output(output: &str) -> String {
+    enum AnsiState {
+        PlainText,
+        Escape,
+        ControlSequence,
+        OperatingSystemCommand,
     }
 
-    fn linefeed(&mut self) {
-        self.output.push('\n');
-        self.line_start = self.output.len();
+    let mut sanitized_output = String::with_capacity(output.len());
+    let mut line_start = 0;
+    let mut state = AnsiState::PlainText;
+
+    for character in output.chars() {
+        match state {
+            AnsiState::PlainText => match character {
+                '\x1b' => state = AnsiState::Escape,
+                '\n' => {
+                    sanitized_output.push('\n');
+                    line_start = sanitized_output.len();
+                }
+                '\r' => sanitized_output.truncate(line_start),
+                character => sanitized_output.push(character),
+            },
+            AnsiState::Escape => match character {
+                '[' => state = AnsiState::ControlSequence,
+                ']' => state = AnsiState::OperatingSystemCommand,
+                '\x1b' => state = AnsiState::Escape,
+                _ => state = AnsiState::PlainText,
+            },
+            AnsiState::ControlSequence => {
+                if ('\u{40}'..='\u{7e}').contains(&character) {
+                    state = AnsiState::PlainText;
+                }
+            }
+            AnsiState::OperatingSystemCommand => {
+                if character == '\x07' {
+                    state = AnsiState::PlainText;
+                } else if character == '\x1b' {
+                    state = AnsiState::Escape;
+                }
+            }
+        }
     }
 
-    fn carriage_return(&mut self) {
-        self.output.truncate(self.line_start);
-    }
-
-    fn put_tab(&mut self, count: u16) {
-        self.output
-            .extend(std::iter::repeat_n('\t', count as usize));
-    }
+    sanitized_output
 }
 
 pub(crate) fn show_error_toast(
@@ -8219,20 +7741,16 @@ mod tests {
 
     #[test]
     fn test_git_output_handler_strips_ansi_codes() {
-        use alacritty_terminal::vte::ansi;
-
         let cases = [
             ("no escape codes here\n", "no escape codes here\n"),
             ("\x1b[31mhello\x1b[0m", "hello"),
             ("\x1b[1;32mfoo\x1b[0m bar", "foo bar"),
+            ("with\ttab", "with\ttab"),
             ("progress 10%\rprogress 100%\n", "progress 100%\n"),
         ];
 
         for (input, expected) in cases {
-            let mut handler = GitOutputHandler::default();
-            let mut processor = ansi::Processor::<ansi::StdSyncHandler>::default();
-            processor.advance(&mut handler, input.as_bytes());
-            assert_eq!(handler.output, expected);
+            assert_eq!(sanitize_git_output(input), expected);
         }
     }
 

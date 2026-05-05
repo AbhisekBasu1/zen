@@ -1,3 +1,4 @@
+pub mod askpass;
 pub mod blame;
 pub mod commit;
 mod hosting_provider;
@@ -9,6 +10,10 @@ pub mod status;
 pub use crate::hosting_provider::*;
 pub use crate::remote::*;
 use anyhow::{Context as _, Result};
+pub use askpass::{
+    AskPassDelegate, AskPassResult, AskPassSession, EncryptedPassword,
+    IKnowWhatIAmDoingAndIHaveReadTheDocs,
+};
 pub use git2 as libgit;
 use gpui::{Action, actions};
 pub use repository::RemoteCommandOutput;
@@ -97,8 +102,6 @@ actions!(
         /// Toggles whether the commit message editor fills all the available
         /// vertical space within the git panel.
         ToggleFillCommitEditor,
-        /// Generates a commit message using AI.
-        GenerateCommitMessage,
         /// Initializes a new git repository.
         Init,
         /// Opens all modified files in the editor.

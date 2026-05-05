@@ -1,25 +1,18 @@
 mod action;
-mod agent;
 mod editor;
-mod extension;
 mod fallible_options;
 mod language;
-mod language_model;
 pub mod merge_from;
 mod project;
 mod serde_helper;
-mod terminal;
 mod theme;
 mod title_bar;
 mod workspace;
 
 pub use action::{ActionName, ActionWithArguments};
-pub use agent::*;
 pub use editor::*;
-pub use extension::*;
 pub use fallible_options::*;
 pub use language::*;
-pub use language_model::*;
 pub use merge_from::MergeFrom as MergeFromTrait;
 pub use project::*;
 use serde::de::DeserializeOwned;
@@ -27,7 +20,6 @@ pub use serde_helper::{
     serialize_f32_with_two_decimal_places, serialize_optional_f32_with_two_decimal_places,
 };
 use settings_json::parse_json_with_comments;
-pub use terminal::*;
 pub use theme::*;
 pub use title_bar::*;
 pub use workspace::*;
@@ -69,7 +61,6 @@ macro_rules! settings_overrides {
 }
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::Hash;
-use std::sync::Arc;
 pub use util::serde::default_true;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,9 +83,6 @@ pub struct SettingsContent {
     pub theme: Box<ThemeSettingsContent>,
 
     #[serde(flatten)]
-    pub extension: ExtensionSettingsContent,
-
-    #[serde(flatten)]
     pub workspace: WorkspaceSettingsContent,
 
     #[serde(flatten)]
@@ -114,28 +102,12 @@ pub struct SettingsContent {
 
     pub preview_tabs: Option<PreviewTabsSettingsContent>,
 
-    pub agent: Option<AgentSettingsContent>,
-    pub agent_servers: Option<AllAgentServersSettings>,
-
-    /// Configuration of audio in Zed.
-    pub audio: Option<AudioSettingsContent>,
-
-    /// Whether or not to automatically check for updates.
-    ///
-    /// Default: true
-    pub auto_update: Option<bool>,
-
     /// This base keymap settings adjusts the default keybindings in Zed to be similar
     /// to other common code editors. By default, Zed's keymap closely follows VSCode's
     /// keymap, with minor adjustments, this corresponds to the "VSCode" setting.
     ///
     /// Default: VSCode
     pub base_keymap: Option<BaseKeymapContent>,
-
-    /// Configuration for the collab panel visual settings.
-    pub collaboration_panel: Option<PanelSettingsContent>,
-
-    pub debugger: Option<DebuggerSettingsContent>,
 
     /// Configuration for Diagnostics-related features.
     pub diagnostics: Option<DiagnosticsSettingsContent>,
@@ -146,18 +118,6 @@ pub struct SettingsContent {
     /// Common language server settings.
     pub global_lsp_settings: Option<GlobalLspSettingsContent>,
 
-    /// The settings for the image viewer.
-    pub image_viewer: Option<ImageViewerSettingsContent>,
-
-    pub repl: Option<ReplSettingsContent>,
-
-    /// Whether or not to enable Helix mode.
-    ///
-    /// Default: false
-    pub helix_mode: Option<bool>,
-
-    pub journal: Option<JournalSettingsContent>,
-
     /// A map of log scopes to the desired log level.
     /// Useful for filtering out noisy logs or enabling more verbose logging.
     ///
@@ -165,10 +125,6 @@ pub struct SettingsContent {
     pub log: Option<HashMap<String, String>>,
 
     pub line_indicator_format: Option<LineIndicatorFormat>,
-
-    pub language_models: Option<AllLanguageModelSettingsContent>,
-
-    pub outline_panel: Option<OutlinePanelSettingsContent>,
 
     pub project_panel: Option<ProjectPanelSettingsContent>,
 
@@ -180,39 +136,10 @@ pub struct SettingsContent {
 
     pub proxy: Option<String>,
 
-    /// The URL of the Zed server to connect to.
-    pub server_url: Option<String>,
-
-    /// The URL used as the key for credential storage.
-    ///
-    /// When set, credentials are stored under this URL instead of `server_url`.
-    /// This allows running multiple Zed instances side by side without them
-    /// overwriting each other's keychain entries.
-    pub credentials_url: Option<String>,
-
     /// Configuration for session-related features
     pub session: Option<SessionSettingsContent>,
-    /// Control what info is collected by Zed.
-    pub telemetry: Option<TelemetrySettingsContent>,
-
-    /// Configuration of the terminal in Zed.
-    pub terminal: Option<TerminalSettingsContent>,
 
     pub title_bar: Option<TitleBarSettingsContent>,
-
-    /// Whether or not to enable Vim mode.
-    ///
-    /// Default: false
-    pub vim_mode: Option<bool>,
-
-    // Settings related to calls in Zed
-    pub calls: Option<CallSettingsContent>,
-
-    /// Settings for the which-key popup.
-    pub which_key: Option<WhichKeySettingsContent>,
-
-    /// Settings related to Vim mode in Zed.
-    pub vim: Option<VimSettingsContent>,
 
     /// Number of lines to search for modelines at the beginning and end of files.
     /// Modelines contain editor directives (e.g., vim/emacs settings) that configure
@@ -223,33 +150,6 @@ pub struct SettingsContent {
 
     /// Local overrides for feature flags, keyed by flag name.
     pub feature_flags: Option<FeatureFlagsMap>,
-
-    /// Settings for developer-oriented instrumentation tools (profilers,
-    /// tracers, etc.) that can be toggled at runtime.
-    pub instrumentation: Option<InstrumentationSettingsContent>,
-}
-
-/// Configuration for developer-oriented instrumentation tools that collect
-/// diagnostic data about a running Zed instance.
-#[with_fallible_options]
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]
-pub struct InstrumentationSettingsContent {
-    /// Configuration for the performance profiler, accessed via the
-    /// `zed: open performance profiler` action.
-    pub performance_profiler: Option<PerformanceProfilerSettingsContent>,
-}
-
-/// Configuration for the performance profiler which collects timing data
-/// for foreground and background executor tasks.
-#[with_fallible_options]
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]
-pub struct PerformanceProfilerSettingsContent {
-    /// Whether to collect timing data for foreground and background executor
-    /// tasks. Enabling this may lead to increased memory usage, hence it's
-    /// disabled by default for regular builds.
-    ///
-    /// Default: false
-    pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, MergeFrom)]
@@ -429,144 +329,6 @@ impl strum::VariantNames for BaseKeymapContent {
     ];
 }
 
-/// Configuration of audio in Zed.
-#[with_fallible_options]
-#[derive(Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug)]
-pub struct AudioSettingsContent {
-    /// Automatically increase or decrease you microphone's volume. This affects how
-    /// loud you sound to others.
-    ///
-    /// Recommended: off (default)
-    /// Microphones are too quite in zed, until everyone is on experimental
-    /// audio and has auto speaker volume on this will make you very loud
-    /// compared to other speakers.
-    #[serde(rename = "experimental.auto_microphone_volume")]
-    pub auto_microphone_volume: Option<bool>,
-    /// Remove background noises. Works great for typing, cars, dogs, AC. Does
-    /// not work well on music.
-    /// Select specific output audio device.
-    #[serde(rename = "experimental.output_audio_device")]
-    pub output_audio_device: Option<AudioOutputDeviceName>,
-    /// Select specific input audio device.
-    #[serde(rename = "experimental.input_audio_device")]
-    pub input_audio_device: Option<AudioInputDeviceName>,
-}
-
-#[derive(Clone, Default, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct AudioOutputDeviceName(pub Option<String>);
-
-impl AsRef<Option<String>> for AudioInputDeviceName {
-    fn as_ref(&self) -> &Option<String> {
-        &self.0
-    }
-}
-
-impl From<Option<String>> for AudioInputDeviceName {
-    fn from(value: Option<String>) -> Self {
-        Self(value)
-    }
-}
-
-#[derive(Clone, Default, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct AudioInputDeviceName(pub Option<String>);
-
-impl AsRef<Option<String>> for AudioOutputDeviceName {
-    fn as_ref(&self) -> &Option<String> {
-        &self.0
-    }
-}
-
-impl From<Option<String>> for AudioOutputDeviceName {
-    fn from(value: Option<String>) -> Self {
-        Self(value)
-    }
-}
-
-/// Control what info is collected by Zed.
-#[with_fallible_options]
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Debug, MergeFrom)]
-pub struct TelemetrySettingsContent {
-    /// Send debug info like crash reports.
-    ///
-    /// Default: true
-    pub diagnostics: Option<bool>,
-    /// Send anonymized usage data like what languages you're using Zed with.
-    ///
-    /// Default: true
-    pub metrics: Option<bool>,
-}
-
-impl Default for TelemetrySettingsContent {
-    fn default() -> Self {
-        Self {
-            diagnostics: Some(true),
-            metrics: Some(true),
-        }
-    }
-}
-
-#[with_fallible_options]
-#[derive(Default, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Clone, MergeFrom)]
-pub struct DebuggerSettingsContent {
-    /// Determines the stepping granularity.
-    ///
-    /// Default: line
-    pub stepping_granularity: Option<SteppingGranularity>,
-    /// Whether the breakpoints should be reused across Zed sessions.
-    ///
-    /// Default: true
-    pub save_breakpoints: Option<bool>,
-    /// Whether to show the debug button in the status bar.
-    ///
-    /// Default: true
-    pub button: Option<bool>,
-    /// Time in milliseconds until timeout error when connecting to a TCP debug adapter
-    ///
-    /// Default: 2000ms
-    pub timeout: Option<u64>,
-    /// Whether to log messages between active debug adapters and Zed
-    ///
-    /// Default: true
-    pub log_dap_communications: Option<bool>,
-    /// Whether to format dap messages in when adding them to debug adapter logger
-    ///
-    /// Default: true
-    pub format_dap_log_messages: Option<bool>,
-    /// The dock position of the debug panel
-    ///
-    /// Default: Bottom
-    pub dock: Option<DockPosition>,
-}
-
-/// The granularity of one 'step' in the stepping requests `next`, `stepIn`, `stepOut`, and `stepBack`.
-#[derive(
-    PartialEq,
-    Eq,
-    Debug,
-    Hash,
-    Clone,
-    Copy,
-    Deserialize,
-    Serialize,
-    JsonSchema,
-    MergeFrom,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum SteppingGranularity {
-    /// The step should allow the program to run until the current statement has finished executing.
-    /// The meaning of a statement is determined by the adapter and it may be considered equivalent to a line.
-    /// For example 'for(int i = 0; i < 10; i++)' could be considered to have 3 statements 'int i = 0', 'i < 10', and 'i++'.
-    Statement,
-    /// The step should allow the program to run until the current source line has executed.
-    Line,
-    /// The step should allow one instruction to execute (e.g. one x86 instruction).
-    Instruction,
-}
-
 #[derive(
     Copy,
     Clone,
@@ -585,21 +347,6 @@ pub enum DockPosition {
     Left,
     Bottom,
     Right,
-}
-
-/// Configuration of voice calls in Zed.
-#[with_fallible_options]
-#[derive(Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug)]
-pub struct CallSettingsContent {
-    /// Whether the microphone should be muted when joining a channel or a call.
-    ///
-    /// Default: false
-    pub mute_on_join: Option<bool>,
-
-    /// Whether your current project should be shared when joining an empty channel.
-    ///
-    /// Default: false
-    pub share_on_join: Option<bool>,
 }
 
 #[with_fallible_options]
@@ -711,6 +458,39 @@ pub struct ScrollbarSettings {
     pub show: Option<ShowScrollbar>,
 }
 
+pub type ScrollbarSettingsContent = ScrollbarSettings;
+
+/// When to show the scrollbar.
+///
+/// Default: auto
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    MergeFrom,
+    PartialEq,
+    Eq,
+    strum::VariantArray,
+    strum::VariantNames,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ShowScrollbar {
+    /// Show the scrollbar if there's important information or
+    /// follow the system's configured behavior.
+    #[default]
+    Auto,
+    /// Match the system's configured behavior.
+    System,
+    /// Always show the scrollbar.
+    Always,
+    /// Never show the scrollbar.
+    Never,
+}
+
 #[with_fallible_options]
 #[derive(Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug, PartialEq)]
 pub struct PanelSettingsContent {
@@ -814,197 +594,6 @@ pub enum FileFinderWidthContent {
     Full,
 }
 
-#[with_fallible_options]
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug, JsonSchema, MergeFrom)]
-pub struct VimSettingsContent {
-    pub default_mode: Option<ModeContent>,
-    pub toggle_relative_line_numbers: Option<bool>,
-    pub use_system_clipboard: Option<UseSystemClipboard>,
-    pub use_smartcase_find: Option<bool>,
-    pub use_regex_search: Option<bool>,
-    /// When enabled, the `:substitute` command replaces all matches in a line
-    /// by default. The 'g' flag then toggles this behavior.,
-    pub gdefault: Option<bool>,
-    pub custom_digraphs: Option<HashMap<String, Arc<str>>>,
-    pub highlight_on_yank_duration: Option<u64>,
-    pub cursor_shape: Option<CursorShapeSettings>,
-}
-
-#[derive(
-    Copy,
-    Clone,
-    Default,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    Debug,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum ModeContent {
-    #[default]
-    Normal,
-    Insert,
-}
-
-/// Controls when to use system clipboard.
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    JsonSchema,
-    MergeFrom,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum UseSystemClipboard {
-    /// Don't use system clipboard.
-    Never,
-    /// Use system clipboard.
-    Always,
-    /// Use system clipboard for yank operations.
-    OnYank,
-}
-
-/// Cursor shape configuration for insert mode in Vim.
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    JsonSchema,
-    MergeFrom,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum VimInsertModeCursorShape {
-    /// Inherit cursor shape from the editor's base cursor_shape setting.
-    Inherit,
-    /// Vertical bar cursor.
-    Bar,
-    /// Block cursor that surrounds the character.
-    Block,
-    /// Underline cursor.
-    Underline,
-    /// Hollow box cursor.
-    Hollow,
-}
-
-/// The settings for cursor shape.
-#[with_fallible_options]
-#[derive(
-    Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema, MergeFrom,
-)]
-pub struct CursorShapeSettings {
-    /// Cursor shape for the normal mode.
-    ///
-    /// Default: block
-    pub normal: Option<CursorShape>,
-    /// Cursor shape for the replace mode.
-    ///
-    /// Default: underline
-    pub replace: Option<CursorShape>,
-    /// Cursor shape for the visual mode.
-    ///
-    /// Default: block
-    pub visual: Option<CursorShape>,
-    /// Cursor shape for the insert mode.
-    ///
-    /// The default value follows the primary cursor_shape.
-    pub insert: Option<VimInsertModeCursorShape>,
-}
-
-/// Settings specific to journaling
-#[with_fallible_options]
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq)]
-pub struct JournalSettingsContent {
-    /// The path of the directory where journal entries are stored.
-    ///
-    /// Default: `~`
-    pub path: Option<String>,
-    /// What format to display the hours in.
-    ///
-    /// Default: hour12
-    pub hour_format: Option<HourFormat>,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum HourFormat {
-    #[default]
-    Hour12,
-    Hour24,
-}
-
-#[with_fallible_options]
-#[derive(Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug, PartialEq)]
-pub struct OutlinePanelSettingsContent {
-    /// Whether to show the outline panel button in the status bar.
-    ///
-    /// Default: true
-    pub button: Option<bool>,
-    /// Customize default width (in pixels) taken by outline panel
-    ///
-    /// Default: 240
-    #[serde(serialize_with = "crate::serialize_optional_f32_with_two_decimal_places")]
-    pub default_width: Option<f32>,
-    /// The position of outline panel
-    ///
-    /// Default: left
-    pub dock: Option<DockSide>,
-    /// Whether to show file icons in the outline panel.
-    ///
-    /// Default: true
-    pub file_icons: Option<bool>,
-    /// Whether to show folder icons or chevrons for directories in the outline panel.
-    ///
-    /// Default: true
-    pub folder_icons: Option<bool>,
-    /// Whether to show the git status in the outline panel.
-    ///
-    /// Default: true
-    pub git_status: Option<bool>,
-    /// Amount of indentation (in pixels) for nested items.
-    ///
-    /// Default: 20
-    #[serde(serialize_with = "crate::serialize_optional_f32_with_two_decimal_places")]
-    pub indent_size: Option<f32>,
-    /// Whether to reveal it in the outline panel automatically,
-    /// when a corresponding project entry becomes active.
-    /// Gitignored entries are never auto revealed.
-    ///
-    /// Default: true
-    pub auto_reveal_entries: Option<bool>,
-    /// Whether to fold directories automatically
-    /// when directory has only one directory inside.
-    ///
-    /// Default: true
-    pub auto_fold_dirs: Option<bool>,
-    /// Settings related to indent guides in the outline panel.
-    pub indent_guides: Option<IndentGuidesSettingsContent>,
-    /// Scrollbar-related settings
-    pub scrollbar: Option<ScrollbarSettingsContent>,
-    /// Default depth to expand outline items in the current file.
-    /// The default depth to which outline entries are expanded on reveal.
-    /// - Set to 0 to collapse all items that have children
-    /// - Set to 1 or higher to collapse items at that depth or deeper
-    ///
-    /// Default: 100
-    pub expand_outlines_with_depth: Option<usize>,
-}
-
 #[derive(
     Clone,
     Copy,
@@ -1058,39 +647,6 @@ pub enum LineIndicatorFormat {
     Short,
     #[default]
     Long,
-}
-
-/// The settings for the image viewer.
-#[with_fallible_options]
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, Default, PartialEq)]
-pub struct ImageViewerSettingsContent {
-    /// The unit to use for displaying image file sizes.
-    ///
-    /// Default: "binary"
-    pub unit: Option<ImageFileSizeUnit>,
-}
-
-#[with_fallible_options]
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    Default,
-    PartialEq,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum ImageFileSizeUnit {
-    /// Displays file size in binary units (e.g., KiB, MiB).
-    #[default]
-    Binary,
-    /// Displays file size in decimal units (e.g., KB, MB).
-    Decimal,
 }
 
 #[with_fallible_options]
@@ -1165,57 +721,13 @@ pub struct SshPortForwardOption {
     pub remote_port: u16,
 }
 
-/// Settings for configuring REPL display and behavior.
-#[with_fallible_options]
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]
-pub struct ReplSettingsContent {
-    /// Maximum number of lines to keep in REPL's scrollback buffer.
-    /// Clamped with [4, 256] range.
-    ///
-    /// Default: 32
-    pub max_lines: Option<usize>,
-    /// Maximum number of columns to keep in REPL's scrollback buffer.
-    /// Clamped with [20, 512] range.
-    ///
-    /// Default: 128
-    pub max_columns: Option<usize>,
-    /// Whether to show small single-line outputs inline instead of in a block.
-    ///
-    /// Default: true
-    pub inline_output: Option<bool>,
-    /// Maximum number of characters for an output to be shown inline.
-    /// Only applies when `inline_output` is true.
-    ///
-    /// Default: 50
-    pub inline_output_max_length: Option<usize>,
-    /// Maximum number of lines of output to display before scrolling.
-    /// Set to 0 to disable output height limits.
-    ///
-    /// Default: 0
-    pub output_max_height_lines: Option<usize>,
-}
-
-/// Settings for configuring the which-key popup behaviour.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]
-pub struct WhichKeySettingsContent {
-    /// Whether to show the which-key popup when holding down key combinations
-    ///
-    /// Default: false
-    pub enabled: Option<bool>,
-    /// Delay in milliseconds before showing the which-key popup.
-    ///
-    /// Default: 700
-    pub delay_ms: Option<u64>,
-}
-
 // An ExtendingVec in the settings can only accumulate new values.
 //
 // This is useful for things like private files where you only want
 // to allow new values to be added.
 //
-// Consider using a HashMap<String, bool> instead of this type
-// (like auto_install_extensions) so that user settings files can both add
-// and remove values from the set.
+// Consider using a HashMap<String, bool> instead of this type so that user settings
+// files can both add and remove values from the set.
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ExtendingVec<T>(pub Vec<T>);
 
@@ -1233,31 +745,6 @@ impl<T> From<Vec<T>> for ExtendingVec<T> {
 impl<T: Clone> merge_from::MergeFrom for ExtendingVec<T> {
     fn merge_from(&mut self, other: &Self) {
         self.0.extend_from_slice(other.0.as_slice());
-    }
-}
-
-// A SaturatingBool in the settings can only ever be set to true,
-// later attempts to set it to false will be ignored.
-//
-// Used by `disable_ai`.
-#[derive(Debug, Default, Copy, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct SaturatingBool(pub bool);
-
-impl From<bool> for SaturatingBool {
-    fn from(value: bool) -> Self {
-        SaturatingBool(value)
-    }
-}
-
-impl From<SaturatingBool> for bool {
-    fn from(value: SaturatingBool) -> bool {
-        value.0
-    }
-}
-
-impl merge_from::MergeFrom for SaturatingBool {
-    fn merge_from(&mut self, other: &Self) {
-        self.0 |= other.0
     }
 }
 

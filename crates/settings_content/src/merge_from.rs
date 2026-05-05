@@ -12,7 +12,7 @@
 /// * For options, a None value is ignored, but Some values are merged recursively.
 /// * For other types (including Vec), a merge overwrites the current value.
 ///
-/// If you want to break the rules you can (e.g. ExtendingVec, or SaturatingBool).
+/// If you want to break the rules you can (e.g. ExtendingVec).
 #[allow(unused)]
 pub trait MergeFrom {
     /// Merge from a source of the same type.
@@ -56,7 +56,6 @@ merge_from_overwrites!(
     std::sync::Arc<str>,
     std::path::PathBuf,
     std::sync::Arc<std::path::Path>,
-    language_model_core::Speed,
 );
 
 impl<T: Clone + MergeFrom> MergeFrom for Option<T> {

@@ -1,10 +1,9 @@
 use gpui::{
-    FontFeatures, FontStyle, FontWeight, Modifiers, Pixels, SharedString,
-    WindowBackgroundAppearance, px,
+    FontFeatures, FontStyle, FontWeight, Pixels, SharedString, WindowBackgroundAppearance, px,
 };
 use settings_content::{
     FontFamilyName, FontFeaturesContent, FontSize, FontStyleContent, FontWeightContent,
-    ModifiersContent, WindowBackgroundContent,
+    WindowBackgroundContent,
 };
 use std::sync::Arc;
 
@@ -50,20 +49,6 @@ impl IntoGpui for WindowBackgroundContent {
             WindowBackgroundContent::Opaque => WindowBackgroundAppearance::Opaque,
             WindowBackgroundContent::Transparent => WindowBackgroundAppearance::Transparent,
             WindowBackgroundContent::Blurred => WindowBackgroundAppearance::Blurred,
-        }
-    }
-}
-
-impl IntoGpui for ModifiersContent {
-    type Output = Modifiers;
-
-    fn into_gpui(self) -> Self::Output {
-        Modifiers {
-            control: self.control,
-            alt: self.alt,
-            shift: self.shift,
-            platform: self.platform,
-            function: self.function,
         }
     }
 }

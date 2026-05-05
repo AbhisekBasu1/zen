@@ -132,19 +132,6 @@ message DocumentSymbol {
   repeated DocumentSymbol children = 7;
 }
 
-message InlayHints {
-  uint64 project_id = 1;
-  uint64 buffer_id = 2;
-  Anchor start = 3;
-  Anchor end = 4;
-  repeated VectorClockEntry version = 5;
-}
-
-message InlayHintsResponse {
-  repeated InlayHint hints = 1;
-  repeated VectorClockEntry version = 2;
-}
-
 message SemanticTokens {
   uint64 project_id = 1;
   uint64 buffer_id = 2;
@@ -256,7 +243,6 @@ message Completion {
     Lsp = 0;
     Custom = 1;
     BufferWord = 2;
-    Dap = 3;
   }
 }
 
@@ -271,74 +257,6 @@ message GetCodeActions {
 message GetCodeActionsResponse {
   repeated CodeAction actions = 1;
   repeated VectorClockEntry version = 2;
-}
-
-message GetSignatureHelp {
-  uint64 project_id = 1;
-  uint64 buffer_id = 2;
-  Anchor position = 3;
-  repeated VectorClockEntry version = 4;
-}
-
-message GetSignatureHelpResponse {
-  optional SignatureHelp signature_help = 1;
-}
-
-message SignatureHelp {
-  repeated SignatureInformation signatures = 1;
-  optional uint32 active_signature = 2;
-  optional uint32 active_parameter = 3;
-}
-
-message SignatureInformation {
-  string label = 1;
-  optional Documentation documentation = 2;
-  repeated ParameterInformation parameters = 3;
-  optional uint32 active_parameter = 4;
-}
-
-message Documentation {
-  oneof content {
-    string value = 1;
-    MarkupContent markup_content = 2;
-  }
-}
-
-enum MarkupKind {
-  PlainText = 0;
-  Markdown = 1;
-}
-
-message ParameterInformation {
-  oneof label {
-    string simple = 1;
-    LabelOffsets label_offsets = 2;
-  }
-  optional Documentation documentation = 3;
-}
-
-message LabelOffsets {
-  uint32 start = 1;
-  uint32 end = 2;
-}
-
-message GetHover {
-  uint64 project_id = 1;
-  uint64 buffer_id = 2;
-  Anchor position = 3;
-  repeated VectorClockEntry version = 5;
-}
-
-message GetHoverResponse {
-  optional Anchor start = 1;
-  optional Anchor end = 2;
-  repeated HoverBlock contents = 3;
-}
-
-message HoverBlock {
-  string text = 1;
-  optional string language = 2;
-  bool is_markdown = 3;
 }
 
 message ApplyCodeAction {
@@ -398,66 +316,6 @@ message LinkedEditingRangeResponse {
   repeated VectorClockEntry version = 4;
 }
 
-message InlayHint {
-  Anchor position = 1;
-  InlayHintLabel label = 2;
-  optional string kind = 3;
-  bool padding_left = 4;
-  bool padding_right = 5;
-  InlayHintTooltip tooltip = 6;
-  ResolveState resolve_state = 7;
-}
-
-message InlayHintLabel {
-  oneof label {
-    string value = 1;
-    InlayHintLabelParts label_parts = 2;
-  }
-}
-
-message InlayHintLabelParts {
-  repeated InlayHintLabelPart parts = 1;
-}
-
-message InlayHintLabelPart {
-  string value = 1;
-  InlayHintLabelPartTooltip tooltip = 2;
-  optional string location_url = 3;
-  PointUtf16 location_range_start = 4;
-  PointUtf16 location_range_end = 5;
-  optional uint64 language_server_id = 6;
-}
-
-message InlayHintTooltip {
-  oneof content {
-    string value = 1;
-    MarkupContent markup_content = 2;
-  }
-}
-
-message InlayHintLabelPartTooltip {
-  oneof content {
-    string value = 1;
-    MarkupContent markup_content = 2;
-  }
-}
-
-message ResolveState {
-  State state = 1;
-  LspResolveState lsp_resolve_state = 2;
-
-  enum State {
-    Resolved = 0;
-    CanResolve = 1;
-    Resolving = 2;
-  }
-
-  message LspResolveState {
-    optional string value = 1;
-    uint64 server_id = 2;
-  }
-}
-
 // This type is used to resolve more than just
 // the documentation, but for backwards-compatibility
 // reasons we can't rename the type.
@@ -479,47 +337,6 @@ message ResolveCompletionDocumentationResponse {
   Anchor old_insert_end = 8;
 }
 
-message ResolveInlayHint {
-  uint64 project_id = 1;
-  uint64 buffer_id = 2;
-  uint64 language_server_id = 3;
-  InlayHint hint = 4;
-}
-
-message ResolveInlayHintResponse {
-  InlayHint hint = 1;
-}
-
-message RefreshInlayHints {
-  uint64 project_id = 1;
-  uint64 server_id = 2;
-  optional uint64 request_id = 3;
-}
-
-message CodeLens {
-  bytes lsp_lens = 1;
-}
-
-message GetCodeLens {
-  uint64 project_id = 1;
-  uint64 buffer_id = 2;
-  repeated VectorClockEntry version = 3;
-}
-
-message GetCodeLensResponse {
-  repeated CodeAction lens_actions = 1;
-  repeated VectorClockEntry version = 2;
-}
-
-message RefreshCodeLens {
-  uint64 project_id = 1;
-}
-
-message MarkupContent {
-  bool is_markdown = 1;
-  string value = 2;
-}
-
 message PerformRenameResponse {
   ProjectTransaction transaction = 2;
 }
@@ -534,7 +351,6 @@ message CodeAction {
   enum Kind {
     Action = 0;
     Command = 1;
-    CodeLens = 2;
   }
 }
 
@@ -788,43 +604,6 @@ message LanguageServerPromptResponse {
   optional uint64 action_response = 1;
 }
 
-message GetDocumentColor {
-  uint64 project_id = 1;
-  uint64 buffer_id = 2;
-  repeated VectorClockEntry version = 3;
-}
-
-message GetDocumentColorResponse {
-  repeated ColorInformation colors = 1;
-  repeated VectorClockEntry version = 2;
-}
-
-message ColorInformation {
-  PointUtf16 lsp_range_start = 1;
-  PointUtf16 lsp_range_end = 2;
-  float red = 3;
-  float green = 4;
-  float blue = 5;
-  float alpha = 6;
-}
-
-message GetColorPresentation {
-  uint64 project_id = 1;
-  uint64 buffer_id = 2;
-  ColorInformation color = 3;
-  uint64 server_id = 4;
-}
-
-message GetColorPresentationResponse {
-  repeated ColorPresentation presentations = 1;
-}
-
-message ColorPresentation {
-  string label = 1;
-  optional TextEdit text_edit = 2;
-  repeated TextEdit additional_text_edits = 3;
-}
-
 message TextEdit {
   string new_text = 1;
   PointUtf16 lsp_range_start = 2;
@@ -837,17 +616,12 @@ message LspQuery {
   optional uint64 server_id = 15;
   oneof request {
     GetReferences get_references = 3;
-    GetDocumentColor get_document_color = 4;
-    GetHover get_hover = 5;
     GetCodeActions get_code_actions = 6;
-    GetSignatureHelp get_signature_help = 7;
-    GetCodeLens get_code_lens = 8;
     GetDocumentDiagnostics get_document_diagnostics = 9;
     GetDefinition get_definition = 10;
     GetDeclaration get_declaration = 11;
     GetTypeDefinition get_type_definition = 12;
     GetImplementation get_implementation = 13;
-    InlayHints inlay_hints = 14;
     SemanticTokens semantic_tokens = 16;
     GetFoldingRanges get_folding_ranges = 17;
     GetDocumentSymbols get_document_symbols = 18;
@@ -862,18 +636,13 @@ message LspQueryResponse {
 
 message LspResponse {
   oneof response {
-    GetHoverResponse get_hover_response = 1;
     GetCodeActionsResponse get_code_actions_response = 2;
-    GetSignatureHelpResponse get_signature_help_response = 3;
-    GetCodeLensResponse get_code_lens_response = 4;
     GetDocumentDiagnosticsResponse get_document_diagnostics_response = 5;
-    GetDocumentColorResponse get_document_color_response = 6;
     GetDefinitionResponse get_definition_response = 8;
     GetDeclarationResponse get_declaration_response = 9;
     GetTypeDefinitionResponse get_type_definition_response = 10;
     GetImplementationResponse get_implementation_response = 11;
     GetReferencesResponse get_references_response = 12;
-    InlayHintsResponse inlay_hints_response = 13;
     SemanticTokensResponse semantic_tokens_response = 14;
     GetFoldingRangesResponse get_folding_ranges_response = 15;
     GetDocumentSymbolsResponse get_document_symbols_response = 16;
@@ -902,21 +671,6 @@ message StopLanguageServers {
   repeated uint64 buffer_ids = 2;
   repeated LanguageServerSelector also_servers = 3;
   bool all = 4;
-}
-
-message LspExtRunnables {
-  uint64 project_id = 1;
-  uint64 buffer_id = 2;
-  optional Anchor position = 3;
-}
-
-message LspExtRunnablesResponse {
-  repeated LspRunnable runnables = 1;
-}
-
-message LspRunnable {
-  bytes task_template = 1;
-  optional LocationLink location = 2;
 }
 
 message LspExtCancelFlycheck {

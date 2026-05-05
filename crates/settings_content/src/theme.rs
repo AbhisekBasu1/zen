@@ -145,10 +145,6 @@ pub struct ThemeSettingsContent {
     /// The OpenType features to enable for rendering in text buffers.
     #[schemars(default = "default_font_features")]
     pub buffer_font_features: Option<FontFeaturesContent>,
-    /// The font size for agent responses in the agent panel. Falls back to the UI font size if unset.
-    pub agent_ui_font_size: Option<FontSize>,
-    /// The font size for user messages in the agent panel.
-    pub agent_buffer_font_size: Option<FontSize>,
     /// The name of a font to use for rendering in the markdown preview.
     /// Falls back to the UI font if unset.
     pub markdown_preview_font_family: Option<FontFamilyName>,
@@ -674,11 +670,6 @@ pub struct ThemeColorsContent {
     #[serde(rename = "icon.accent")]
     pub icon_accent: Option<String>,
 
-    /// Color used to accent some of the debuggers elements
-    /// Only accent breakpoint & breakpoint related symbols right now
-    #[serde(rename = "debugger.accent")]
-    pub debugger_accent: Option<String>,
-
     #[serde(rename = "status_bar.background")]
     pub status_bar_background: Option<String>,
 
@@ -764,22 +755,6 @@ pub struct ThemeColorsContent {
     #[serde(rename = "scrollbar.track.border")]
     pub scrollbar_track_border: Option<String>,
 
-    /// The color of the minimap thumb.
-    #[serde(rename = "minimap.thumb.background")]
-    pub minimap_thumb_background: Option<String>,
-
-    /// The color of the minimap thumb when hovered over.
-    #[serde(rename = "minimap.thumb.hover_background")]
-    pub minimap_thumb_hover_background: Option<String>,
-
-    /// The color of the minimap thumb whilst being actively dragged.
-    #[serde(rename = "minimap.thumb.active_background")]
-    pub minimap_thumb_active_background: Option<String>,
-
-    /// The border color of the minimap thumb.
-    #[serde(rename = "minimap.thumb.border")]
-    pub minimap_thumb_border: Option<String>,
-
     #[serde(rename = "editor.foreground")]
     pub editor_foreground: Option<String>,
 
@@ -797,10 +772,6 @@ pub struct ThemeColorsContent {
 
     #[serde(rename = "editor.highlighted_line.background")]
     pub editor_highlighted_line_background: Option<String>,
-
-    /// Background of active line of debugger
-    #[serde(rename = "editor.debugger_active_line.background")]
-    pub editor_debugger_active_line_background: Option<String>,
 
     /// Text Color. Used for the text of the line number in the editor gutter.
     #[serde(rename = "editor.line_number")]

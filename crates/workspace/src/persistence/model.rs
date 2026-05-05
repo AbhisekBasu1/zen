@@ -6,18 +6,11 @@ use crate::{
 use anyhow::{Context, Result};
 use async_recursion::async_recursion;
 use collections::IndexSet;
-use db::sqlez::{
-    bindable::{Bind, Column, StaticColumnCount},
-    statement::Statement,
-};
 use gpui::{AsyncWindowContext, Entity, WeakEntity, WindowId};
 
 use language::{Toolchain, ToolchainScope};
-use project::{
-    Project, ProjectGroupKey, bookmark_store::SerializedBookmark,
-    debugger::breakpoint_store::SourceBreakpoint,
-};
-use remote::RemoteConnectionOptions;
+use project::remote::RemoteConnectionOptions;
+use project::{Project, ProjectGroupKey, bookmark_store::SerializedBookmark};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -31,13 +24,6 @@ use uuid::Uuid;
     Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, serde::Serialize, serde::Deserialize,
 )]
 pub(crate) struct RemoteConnectionId(pub u64);
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub(crate) enum RemoteConnectionKind {
-    Ssh,
-    Wsl,
-    Docker,
-}
 
 #[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SerializedWorkspaceLocation {
@@ -137,7 +123,6 @@ pub(crate) struct SerializedWorkspace {
     pub(crate) docks: DockStructure,
     pub(crate) session_id: Option<String>,
     pub(crate) bookmarks: BTreeMap<Arc<Path>, Vec<SerializedBookmark>>,
-    pub(crate) breakpoints: BTreeMap<Arc<Path>, Vec<SourceBreakpoint>>,
     pub(crate) user_toolchains: BTreeMap<ToolchainScope, IndexSet<Toolchain>>,
     pub(crate) window_id: Option<u64>,
 }
@@ -149,78 +134,11 @@ pub struct DockStructure {
     pub bottom: DockData,
 }
 
-impl RemoteConnectionKind {
-    pub(crate) fn serialize(&self) -> &'static str {
-        match self {
-            RemoteConnectionKind::Ssh => "ssh",
-            RemoteConnectionKind::Wsl => "wsl",
-            RemoteConnectionKind::Docker => "docker",
-        }
-    }
-
-    pub(crate) fn deserialize(text: &str) -> Option<Self> {
-        match text {
-            "ssh" => Some(Self::Ssh),
-            "wsl" => Some(Self::Wsl),
-            "docker" => Some(Self::Docker),
-            _ => None,
-        }
-    }
-}
-
-impl Column for DockStructure {
-    fn column(statement: &mut Statement, start_index: i32) -> Result<(Self, i32)> {
-        let (left, next_index) = DockData::column(statement, start_index)?;
-        let (right, next_index) = DockData::column(statement, next_index)?;
-        let (bottom, next_index) = DockData::column(statement, next_index)?;
-        Ok((
-            DockStructure {
-                left,
-                right,
-                bottom,
-            },
-            next_index,
-        ))
-    }
-}
-
-impl Bind for DockStructure {
-    fn bind(&self, statement: &Statement, start_index: i32) -> Result<i32> {
-        let next_index = statement.bind(&self.left, start_index)?;
-        let next_index = statement.bind(&self.right, next_index)?;
-        statement.bind(&self.bottom, next_index)
-    }
-}
-
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
 pub struct DockData {
     pub visible: bool,
     pub active_panel: Option<String>,
     pub zoom: bool,
-}
-
-impl Column for DockData {
-    fn column(statement: &mut Statement, start_index: i32) -> Result<(Self, i32)> {
-        let (visible, next_index) = Option::<bool>::column(statement, start_index)?;
-        let (active_panel, next_index) = Option::<String>::column(statement, next_index)?;
-        let (zoom, next_index) = Option::<bool>::column(statement, next_index)?;
-        Ok((
-            DockData {
-                visible: visible.unwrap_or(false),
-                active_panel,
-                zoom: zoom.unwrap_or(false),
-            },
-            next_index,
-        ))
-    }
-}
-
-impl Bind for DockData {
-    fn bind(&self, statement: &Statement, start_index: i32) -> Result<i32> {
-        let next_index = statement.bind(&self.visible, start_index)?;
-        let next_index = statement.bind(&self.active_panel, next_index)?;
-        statement.bind(&self.zoom, next_index)
-    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -409,8 +327,6 @@ impl SerializedPane {
     }
 }
 
-pub type GroupId = i64;
-pub type PaneId = i64;
 pub type ItemId = u64;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -419,17 +335,6 @@ pub struct SerializedItem {
     pub item_id: ItemId,
     pub active: bool,
     pub preview: bool,
-}
-
-impl SerializedItem {
-    pub fn new(kind: impl AsRef<str>, item_id: ItemId, active: bool, preview: bool) -> Self {
-        Self {
-            kind: Arc::from(kind.as_ref()),
-            item_id,
-            active,
-            preview,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -441,37 +346,5 @@ impl Default for SerializedItem {
             active: false,
             preview: false,
         }
-    }
-}
-
-impl StaticColumnCount for SerializedItem {
-    fn column_count() -> usize {
-        4
-    }
-}
-impl Bind for &SerializedItem {
-    fn bind(&self, statement: &Statement, start_index: i32) -> Result<i32> {
-        let next_index = statement.bind(&self.kind, start_index)?;
-        let next_index = statement.bind(&self.item_id, next_index)?;
-        let next_index = statement.bind(&self.active, next_index)?;
-        statement.bind(&self.preview, next_index)
-    }
-}
-
-impl Column for SerializedItem {
-    fn column(statement: &mut Statement, start_index: i32) -> Result<(Self, i32)> {
-        let (kind, next_index) = Arc::<str>::column(statement, start_index)?;
-        let (item_id, next_index) = ItemId::column(statement, next_index)?;
-        let (active, next_index) = bool::column(statement, next_index)?;
-        let (preview, next_index) = bool::column(statement, next_index)?;
-        Ok((
-            SerializedItem {
-                kind,
-                item_id,
-                active,
-                preview,
-            },
-            next_index,
-        ))
     }
 }

@@ -44,7 +44,6 @@ use collections::{HashMap, HashSet};
 use gpui::{
     App, AppContext as _, Context, Entity, EventEmitter, Global, SharedString, Task, WeakEntity,
 };
-use remote::RemoteConnectionOptions;
 use rpc::{AnyProtoClient, proto};
 use settings::{Settings as _, WorktreeId};
 use std::{
@@ -53,7 +52,10 @@ use std::{
 };
 use util::debug_panic;
 
-use crate::{project_settings::ProjectSettings, worktree_store::WorktreeStore};
+use crate::{
+    project_settings::ProjectSettings, remote::RemoteConnectionOptions,
+    worktree_store::WorktreeStore,
+};
 
 pub fn init(db_trusted_paths: DbTrustedPaths, cx: &mut App) {
     if TrustedWorktrees::try_get_global(cx).is_none() {

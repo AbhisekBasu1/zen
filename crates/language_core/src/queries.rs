@@ -10,8 +10,6 @@ pub const QUERY_FILENAME_PREFIXES: &[(&str, QueryFieldAccessor)] = &[
     ("injections", |q| &mut q.injections),
     ("overrides", |q| &mut q.overrides),
     ("redactions", |q| &mut q.redactions),
-    ("runnables", |q| &mut q.runnables),
-    ("debugger", |q| &mut q.debugger),
     ("textobjects", |q| &mut q.text_objects),
 ];
 
@@ -25,7 +23,5 @@ pub struct LanguageQueries {
     pub injections: Option<Cow<'static, str>>,
     pub overrides: Option<Cow<'static, str>>,
     pub redactions: Option<Cow<'static, str>>,
-    pub runnables: Option<Cow<'static, str>>,
     pub text_objects: Option<Cow<'static, str>>,
-    pub debugger: Option<Cow<'static, str>>,
 }

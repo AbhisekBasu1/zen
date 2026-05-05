@@ -2,9 +2,8 @@ use crate::branch_picker::{self, BranchList};
 use crate::git_panel::{GitPanel, commit_message_editor, panel_editor_style};
 use crate::git_panel_settings::GitPanelSettings;
 use git::repository::CommitOptions;
-use git::{Amend, Commit, GenerateCommitMessage, Signoff};
+use git::{Amend, Commit, Signoff};
 use panel::panel_button;
-use project::DisableAiSettings;
 use settings::Settings;
 use ui::{
     ContextMenu, KeybindingHint, PopoverMenu, PopoverMenuHandle, SplitButton, Tooltip, prelude::*,
@@ -334,7 +333,6 @@ impl CommitModal {
             tooltip,
             commit_label,
             co_authors,
-            generate_commit_message,
             active_repo,
             is_amend_pending,
             is_signoff_enabled,
@@ -343,7 +341,6 @@ impl CommitModal {
             let (can_commit, tooltip) = git_panel.configure_commit_button(cx);
             let title = git_panel.commit_button_title();
             let co_authors = git_panel.render_co_authors(cx);
-            let generate_commit_message = git_panel.render_generate_commit_message_button(cx);
             let active_repo = git_panel.active_repository.clone();
             let is_amend_pending = git_panel.amend_pending();
             let is_signoff_enabled = git_panel.signoff_enabled();
@@ -352,7 +349,6 @@ impl CommitModal {
                 tooltip,
                 title,
                 co_authors,
-                generate_commit_message,
                 active_repo,
                 is_amend_pending,
                 is_signoff_enabled,
@@ -374,7 +370,7 @@ impl CommitModal {
             )
             .color(Color::Muted)
             .on_click(cx.listener(|_, _, window, cx| {
-                window.dispatch_action(zed_actions::git::Branch.boxed_clone(), cx);
+                window.dispatch_action(zen_actions::git::Branch.boxed_clone(), cx);
             }))
             .style(ButtonStyle::Transparent);
 
@@ -391,7 +387,7 @@ impl CommitModal {
             .with_handle(self.branch_list_handle.clone())
             .trigger_with_tooltip(
                 branch_picker_button,
-                Tooltip::for_action_title("Switch Branch", &zed_actions::git::Branch),
+                Tooltip::for_action_title("Switch Branch", &zen_actions::git::Branch),
             )
             .anchor(Anchor::BottomLeft)
             .offset(gpui::Point {
@@ -424,7 +420,6 @@ impl CommitModal {
                             .overflow_x_hidden()
                             .child(branch_picker),
                     )
-                    .children(generate_commit_message)
                     .children(co_authors),
             )
             .child(div().flex_1())
@@ -448,7 +443,6 @@ impl CommitModal {
                                 .mr_0p5(),
                         )
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            telemetry::event!("Git Committed", source = "Git Modal");
                             this.git_panel.update(cx, |git_panel, cx| {
                                 git_panel.commit_changes(
                                     CommitOptions {
@@ -509,7 +503,6 @@ impl CommitModal {
         if self.git_panel.update(cx, |git_panel, cx| {
             git_panel.commit(&self.commit_editor.focus_handle(cx), window, cx)
         }) {
-            telemetry::event!("Git Committed", source = "Git Modal");
             cx.emit(DismissEvent);
         }
     }
@@ -518,7 +511,6 @@ impl CommitModal {
         if self.git_panel.update(cx, |git_panel, cx| {
             git_panel.amend(&self.commit_editor.focus_handle(cx), window, cx)
         }) {
-            telemetry::event!("Git Amended", source = "Git Modal");
             cx.emit(DismissEvent);
         }
     }
@@ -558,25 +550,18 @@ impl Render for CommitModal {
             .on_action(cx.listener(Self::dismiss))
             .on_action(cx.listener(Self::on_commit))
             .on_action(cx.listener(Self::on_amend))
-            .when(!DisableAiSettings::get_global(cx).disable_ai, |this| {
-                this.on_action(cx.listener(|this, _: &GenerateCommitMessage, _, cx| {
-                    this.git_panel.update(cx, |panel, cx| {
-                        panel.generate_commit_message(cx);
-                    })
-                }))
-            })
             .on_action(
-                cx.listener(|this, _: &zed_actions::git::Branch, window, cx| {
+                cx.listener(|this, _: &zen_actions::git::Branch, window, cx| {
                     this.toggle_branch_selector(window, cx);
                 }),
             )
             .on_action(
-                cx.listener(|this, _: &zed_actions::git::CheckoutBranch, window, cx| {
+                cx.listener(|this, _: &zen_actions::git::CheckoutBranch, window, cx| {
                     this.toggle_branch_selector(window, cx);
                 }),
             )
             .on_action(
-                cx.listener(|this, _: &zed_actions::git::Switch, window, cx| {
+                cx.listener(|this, _: &zen_actions::git::Switch, window, cx| {
                     this.toggle_branch_selector(window, cx);
                 }),
             )

@@ -3140,159 +3140,34 @@ impl workspace::SerializableItem for GitGraph {
     }
 
     fn cleanup(
-        workspace_id: workspace::WorkspaceId,
-        alive_items: Vec<workspace::ItemId>,
+        _workspace_id: workspace::WorkspaceId,
+        _alive_items: Vec<workspace::ItemId>,
         _window: &mut Window,
-        cx: &mut App,
+        _cx: &mut App,
     ) -> Task<gpui::Result<()>> {
-        workspace::delete_unloaded_items(
-            alive_items,
-            workspace_id,
-            "git_graphs",
-            &persistence::GitGraphsDb::global(cx),
-            cx,
-        )
+        Task::ready(Ok(()))
     }
 
     fn deserialize(
-        project: Entity<project::Project>,
-        workspace: WeakEntity<Workspace>,
-        workspace_id: workspace::WorkspaceId,
-        item_id: workspace::ItemId,
-        window: &mut Window,
-        cx: &mut App,
+        _project: Entity<project::Project>,
+        _workspace: WeakEntity<Workspace>,
+        _workspace_id: workspace::WorkspaceId,
+        _item_id: workspace::ItemId,
+        _window: &mut Window,
+        _cx: &mut App,
     ) -> Task<gpui::Result<Entity<Self>>> {
-        let db = persistence::GitGraphsDb::global(cx);
-        let Some((
-            repo_work_path,
-            log_source_type,
-            log_source_value,
-            log_order,
-            selected_sha,
-            search_query,
-            search_case_sensitive,
-        )) = db.get_git_graph(item_id, workspace_id).ok().flatten()
-        else {
-            return Task::ready(Err(anyhow::anyhow!("No git graph to deserialize")));
-        };
-
-        let state = persistence::SerializedGitGraphState {
-            log_source_type,
-            log_source_value,
-            log_order,
-            selected_sha,
-            search_query,
-            search_case_sensitive,
-        };
-
-        let window_handle = window.window_handle();
-        let project = project.read(cx);
-        let git_store = project.git_store().clone();
-        let wait = project.wait_for_initial_scan(cx);
-
-        cx.spawn(async move |cx| {
-            wait.await;
-
-            cx.update_window(window_handle, |_, window, cx| {
-                let path = repo_work_path.as_path();
-
-                let repositories = git_store.read(cx).repositories();
-                let repo_id = repositories.iter().find_map(|(&repo_id, repo)| {
-                    if repo.read(cx).snapshot().work_directory_abs_path.as_ref() == path {
-                        Some(repo_id)
-                    } else {
-                        None
-                    }
-                });
-
-                let Some(repo_id) = repo_id else {
-                    return Err(anyhow::anyhow!("Repository not found for path: {:?}", path));
-                };
-
-                let log_source = persistence::deserialize_log_source(&state);
-                let log_order = persistence::deserialize_log_order(&state);
-
-                let git_graph = cx.new(|cx| {
-                    let mut graph =
-                        GitGraph::new(repo_id, git_store, workspace, Some(log_source), window, cx);
-                    graph.log_order = log_order;
-
-                    if let Some(sha) = &state.selected_sha {
-                        graph.select_commit_by_sha(sha.as_str(), cx);
-                    }
-
-                    graph
-                });
-
-                git_graph.update(cx, |graph, cx| {
-                    graph.search_state.case_sensitive =
-                        state.search_case_sensitive.unwrap_or(false);
-
-                    if let Some(query) = &state.search_query
-                        && !query.is_empty()
-                    {
-                        graph
-                            .search_state
-                            .editor
-                            .update(cx, |editor, cx| editor.set_text(query.as_str(), window, cx));
-                        graph.search(query.clone().into(), cx);
-                    }
-                });
-
-                Ok(git_graph)
-            })?
-        })
+        Task::ready(Err(anyhow::anyhow!("Git graph persistence is disabled")))
     }
 
     fn serialize(
         &mut self,
-        workspace: &mut Workspace,
-        item_id: workspace::ItemId,
+        _workspace: &mut Workspace,
+        _item_id: workspace::ItemId,
         _closing: bool,
         _window: &mut Window,
-        cx: &mut Context<Self>,
+        _cx: &mut Context<Self>,
     ) -> Option<Task<gpui::Result<()>>> {
-        let workspace_id = workspace.database_id()?;
-        let repo = self.get_repository(cx)?;
-        let repo_working_path = repo
-            .read(cx)
-            .snapshot()
-            .work_directory_abs_path
-            .to_string_lossy()
-            .to_string();
-
-        let selected_sha = self
-            .selected_entry_idx
-            .and_then(|idx| self.graph_data.commits.get(idx))
-            .map(|commit| commit.data.sha.to_string());
-
-        let search_query = self.search_state.editor.read(cx).text(cx);
-        let search_query = if search_query.is_empty() {
-            None
-        } else {
-            Some(search_query)
-        };
-
-        let log_source_type = Some(persistence::serialize_log_source_type(&self.log_source));
-        let log_source_value = persistence::serialize_log_source_value(&self.log_source);
-        let log_order = Some(persistence::serialize_log_order(&self.log_order));
-        let search_case_sensitive = Some(self.search_state.case_sensitive);
-
-        let db = persistence::GitGraphsDb::global(cx);
-        Some(cx.background_spawn(async move {
-            db.save_git_graph(
-                item_id,
-                workspace_id,
-                repo_working_path,
-                log_source_type,
-                log_source_value,
-                log_order,
-                selected_sha,
-                search_query,
-                search_case_sensitive,
-            )
-            .await
-        }))
+        None
     }
 
     fn should_serialize(&self, event: &Self::Event) -> bool {
@@ -3303,52 +3178,14 @@ impl workspace::SerializableItem for GitGraph {
     }
 }
 
+#[cfg(test)]
 mod persistence {
-    use std::{path::PathBuf, str::FromStr};
+    use std::str::FromStr;
 
-    use db::{
-        query,
-        sqlez::{domain::Domain, thread_safe_connection::ThreadSafeConnection},
-        sqlez_macros::sql,
-    };
     use git::{
         Oid,
         repository::{LogOrder, LogSource, RepoPath},
     };
-    use workspace::WorkspaceDb;
-
-    pub struct GitGraphsDb(ThreadSafeConnection);
-
-    impl Domain for GitGraphsDb {
-        const NAME: &str = stringify!(GitGraphsDb);
-
-        const MIGRATIONS: &[&str] = &[
-            sql!(
-                CREATE TABLE git_graphs (
-                    workspace_id INTEGER,
-                    item_id INTEGER UNIQUE,
-                    is_open INTEGER DEFAULT FALSE,
-
-                    PRIMARY KEY(workspace_id, item_id),
-                    FOREIGN KEY(workspace_id) REFERENCES workspaces(workspace_id)
-                    ON DELETE CASCADE
-                ) STRICT;
-            ),
-            sql!(
-                ALTER TABLE git_graphs ADD COLUMN repo_working_path TEXT;
-            ),
-            sql!(
-                ALTER TABLE git_graphs ADD COLUMN log_source_type TEXT;
-                ALTER TABLE git_graphs ADD COLUMN log_source_value TEXT;
-                ALTER TABLE git_graphs ADD COLUMN log_order TEXT;
-                ALTER TABLE git_graphs ADD COLUMN selected_sha TEXT;
-                ALTER TABLE git_graphs ADD COLUMN search_query TEXT;
-                ALTER TABLE git_graphs ADD COLUMN search_case_sensitive INTEGER;
-            ),
-        ];
-    }
-
-    db::static_connection!(GitGraphsDb, [WorkspaceDb]);
 
     pub const LOG_SOURCE_ALL: i32 = 0;
     pub const LOG_SOURCE_BRANCH: i32 = 1;
@@ -3359,33 +3196,6 @@ mod persistence {
     pub const LOG_ORDER_TOPO: i32 = 1;
     pub const LOG_ORDER_AUTHOR_DATE: i32 = 2;
     pub const LOG_ORDER_REVERSE: i32 = 3;
-
-    pub fn serialize_log_source_type(log_source: &LogSource) -> i32 {
-        match log_source {
-            LogSource::All => LOG_SOURCE_ALL,
-            LogSource::Branch(_) => LOG_SOURCE_BRANCH,
-            LogSource::Sha(_) => LOG_SOURCE_SHA,
-            LogSource::Path(_) => LOG_SOURCE_PATH,
-        }
-    }
-
-    pub fn serialize_log_source_value(log_source: &LogSource) -> Option<String> {
-        match log_source {
-            LogSource::All => None,
-            LogSource::Branch(branch) => Some(branch.to_string()),
-            LogSource::Sha(oid) => Some(oid.to_string()),
-            LogSource::Path(path) => Some(path.as_unix_str().to_string()),
-        }
-    }
-
-    pub fn serialize_log_order(log_order: &LogOrder) -> i32 {
-        match log_order {
-            LogOrder::DateOrder => LOG_ORDER_DATE,
-            LogOrder::TopoOrder => LOG_ORDER_TOPO,
-            LogOrder::AuthorDateOrder => LOG_ORDER_AUTHOR_DATE,
-            LogOrder::ReverseChronological => LOG_ORDER_REVERSE,
-        }
-    }
 
     pub fn deserialize_log_source(state: &SerializedGitGraphState) -> LogSource {
         match state.log_source_type {
@@ -3430,55 +3240,6 @@ mod persistence {
         pub search_query: Option<String>,
         pub search_case_sensitive: Option<bool>,
     }
-
-    impl GitGraphsDb {
-        query! {
-            pub async fn save_git_graph(
-                item_id: workspace::ItemId,
-                workspace_id: workspace::WorkspaceId,
-                repo_working_path: String,
-                log_source_type: Option<i32>,
-                log_source_value: Option<String>,
-                log_order: Option<i32>,
-                selected_sha: Option<String>,
-                search_query: Option<String>,
-                search_case_sensitive: Option<bool>
-            ) -> Result<()> {
-                INSERT OR REPLACE INTO git_graphs(
-                    item_id, workspace_id, repo_working_path,
-                    log_source_type, log_source_value, log_order,
-                    selected_sha, search_query, search_case_sensitive
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            }
-        }
-
-        query! {
-            pub fn get_git_graph(
-                item_id: workspace::ItemId,
-                workspace_id: workspace::WorkspaceId
-            ) -> Result<Option<(
-                PathBuf,
-                Option<i32>,
-                Option<String>,
-                Option<i32>,
-                Option<String>,
-                Option<String>,
-                Option<bool>
-            )>> {
-                SELECT
-                    repo_working_path,
-                    log_source_type,
-                    log_source_value,
-                    log_order,
-                    selected_sha,
-                    search_query,
-                    search_case_sensitive
-                FROM git_graphs
-                WHERE item_id = ? AND workspace_id = ?
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -3504,7 +3265,6 @@ mod tests {
             let settings_store = SettingsStore::test(cx);
             cx.set_global(settings_store);
             theme_settings::init(theme::LoadThemes::JustBase, cx);
-            language_model::init(cx);
             git_ui::init(cx);
             project_panel::init(cx);
             init(cx);
@@ -4689,155 +4449,6 @@ mod tests {
             persistence::deserialize_log_order(&empty_state),
             LogOrder::DateOrder
         ));
-    }
-
-    #[gpui::test]
-    async fn test_git_graph_state_persists_across_serialization_roundtrip(cx: &mut TestAppContext) {
-        init_test(cx);
-
-        let fs = FakeFs::new(cx.executor());
-        fs.insert_tree(
-            Path::new("/project"),
-            json!({
-                ".git": {},
-                "file.txt": "content",
-            }),
-        )
-        .await;
-
-        let mut rng = StdRng::seed_from_u64(99);
-        let commits = generate_random_commit_dag(&mut rng, 20, false);
-        fs.set_graph_commits(Path::new("/project/.git"), commits.clone());
-
-        let project = Project::test(fs.clone(), [Path::new("/project")], cx).await;
-        cx.run_until_parked();
-
-        let repository = project.read_with(cx, |project, cx| {
-            project
-                .active_repository(cx)
-                .expect("should have a repository")
-        });
-
-        let (multi_workspace, cx) = cx.add_window_view(|window, cx| {
-            workspace::MultiWorkspace::test_new(project.clone(), window, cx)
-        });
-        let workspace_weak =
-            multi_workspace.read_with(&*cx, |multi, _| multi.workspace().downgrade());
-
-        let git_graph = cx.new_window_entity(|window, cx| {
-            GitGraph::new(
-                repository.read(cx).id,
-                project.read(cx).git_store().clone(),
-                workspace_weak.clone(),
-                None,
-                window,
-                cx,
-            )
-        });
-        cx.run_until_parked();
-
-        cx.draw(
-            point(px(0.), px(0.)),
-            gpui::size(px(1200.), px(800.)),
-            |_, _| git_graph.clone().into_any_element(),
-        );
-        cx.run_until_parked();
-
-        let commit_count = git_graph.read_with(&*cx, |graph, _| graph.graph_data.commits.len());
-        assert!(commit_count > 0, "graph should have loaded commits, got 0");
-
-        let target_sha = commits[5].sha;
-        git_graph.update(cx, |graph, _| {
-            graph.selected_entry_idx = Some(5);
-        });
-
-        let selected_sha = git_graph.read_with(&*cx, |graph, _| {
-            graph
-                .selected_entry_idx
-                .and_then(|idx| graph.graph_data.commits.get(idx))
-                .map(|c| c.data.sha.to_string())
-        });
-        assert_eq!(selected_sha, Some(target_sha.to_string()));
-
-        let item_id = workspace::ItemId::from(999_u64);
-        let workspace_db = cx.read(|cx| workspace::WorkspaceDb::global(cx));
-        let workspace_id = workspace_db
-            .next_id()
-            .await
-            .expect("should create workspace id");
-        let db = cx.read(|cx| persistence::GitGraphsDb::global(cx));
-        db.save_git_graph(
-            item_id,
-            workspace_id,
-            "/project".to_string(),
-            Some(persistence::LOG_SOURCE_ALL),
-            None,
-            Some(persistence::LOG_ORDER_DATE),
-            selected_sha.clone(),
-            Some("some query".to_string()),
-            Some(true),
-        )
-        .await
-        .expect("save should succeed");
-
-        let restored_graph = cx
-            .update(|window, cx| {
-                <GitGraph as workspace::SerializableItem>::deserialize(
-                    project.clone(),
-                    workspace_weak,
-                    workspace_id,
-                    item_id,
-                    window,
-                    cx,
-                )
-            })
-            .await
-            .expect("deserialization should succeed");
-        cx.run_until_parked();
-
-        cx.draw(
-            point(px(0.), px(0.)),
-            gpui::size(px(1200.), px(800.)),
-            |_, _| restored_graph.clone().into_any_element(),
-        );
-        cx.run_until_parked();
-
-        let restored_commit_count =
-            restored_graph.read_with(&*cx, |graph, _| graph.graph_data.commits.len());
-        assert_eq!(
-            restored_commit_count, commit_count,
-            "restored graph should have the same number of commits"
-        );
-
-        restored_graph.read_with(&*cx, |graph, _| {
-            assert_eq!(
-                graph.log_source,
-                LogSource::All,
-                "log_source should be restored"
-            );
-
-            let restored_selected_sha = graph
-                .selected_entry_idx
-                .and_then(|idx| graph.graph_data.commits.get(idx))
-                .map(|c| c.data.sha.to_string());
-            assert_eq!(
-                restored_selected_sha, selected_sha,
-                "selected commit should be restored via pending_select_sha"
-            );
-
-            assert_eq!(
-                graph.search_state.case_sensitive, true,
-                "search case sensitivity should be restored"
-            );
-        });
-
-        restored_graph.read_with(&*cx, |graph, cx| {
-            let editor_text = graph.search_state.editor.read(cx).text(cx);
-            assert_eq!(
-                editor_text, "some query",
-                "search query text should be restored in editor"
-            );
-        });
     }
 
     #[gpui::test]

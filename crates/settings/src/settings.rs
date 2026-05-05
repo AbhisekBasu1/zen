@@ -73,8 +73,7 @@ impl UserSettingsContentExt for UserSettingsContent {
     }
 
     fn for_release_channel(&self) -> Option<&SettingsContent> {
-        self.release_channel_overrides
-            .get_by_key(release_channel::RELEASE_CHANNEL.dev_name())
+        self.release_channel_overrides.get_by_key("dev")
     }
 
     fn for_os(&self) -> Option<&SettingsContent> {
@@ -136,23 +135,10 @@ pub fn default_semantic_token_rules() -> Cow<'static, str> {
     asset_str::<SettingsAssets>("settings/default_semantic_token_rules.json")
 }
 
-#[cfg(target_os = "macos")]
 pub const DEFAULT_KEYMAP_PATH: &str = "keymaps/default-macos.json";
-
-#[cfg(target_os = "windows")]
-pub const DEFAULT_KEYMAP_PATH: &str = "keymaps/default-windows.json";
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-pub const DEFAULT_KEYMAP_PATH: &str = "keymaps/default-linux.json";
 
 pub fn default_keymap() -> Cow<'static, str> {
     asset_str::<SettingsAssets>(DEFAULT_KEYMAP_PATH)
-}
-
-pub const VIM_KEYMAP_PATH: &str = "keymaps/vim.json";
-
-pub fn vim_keymap() -> Cow<'static, str> {
-    asset_str::<SettingsAssets>(VIM_KEYMAP_PATH)
 }
 
 pub fn initial_user_settings_content() -> Cow<'static, str> {
@@ -169,16 +155,4 @@ pub fn initial_project_settings_content() -> Cow<'static, str> {
 
 pub fn initial_keymap_content() -> Cow<'static, str> {
     asset_str::<SettingsAssets>("keymaps/initial.json")
-}
-
-pub fn initial_tasks_content() -> Cow<'static, str> {
-    asset_str::<SettingsAssets>("settings/initial_tasks.json")
-}
-
-pub fn initial_debug_tasks_content() -> Cow<'static, str> {
-    asset_str::<SettingsAssets>("settings/initial_debug_tasks.json")
-}
-
-pub fn initial_local_debug_tasks_content() -> Cow<'static, str> {
-    asset_str::<SettingsAssets>("settings/initial_local_debug_tasks.json")
 }

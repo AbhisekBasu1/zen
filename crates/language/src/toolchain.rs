@@ -12,8 +12,7 @@ use collections::HashMap;
 use futures::future::BoxFuture;
 use gpui::{App, AsyncApp};
 use settings::WorktreeId;
-use task::ShellKind;
-use util::rel_path::RelPath;
+use util::{rel_path::RelPath, shell::ShellKind};
 
 use crate::LanguageName;
 

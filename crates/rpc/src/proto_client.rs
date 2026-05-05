@@ -343,19 +343,7 @@ impl AnyProtoClient {
                             Response::GetReferencesResponse(response) => {
                                 to_any_envelope(&envelope, response)
                             }
-                            Response::GetDocumentColorResponse(response) => {
-                                to_any_envelope(&envelope, response)
-                            }
-                            Response::GetHoverResponse(response) => {
-                                to_any_envelope(&envelope, response)
-                            }
                             Response::GetCodeActionsResponse(response) => {
-                                to_any_envelope(&envelope, response)
-                            }
-                            Response::GetSignatureHelpResponse(response) => {
-                                to_any_envelope(&envelope, response)
-                            }
-                            Response::GetCodeLensResponse(response) => {
                                 to_any_envelope(&envelope, response)
                             }
                             Response::GetDocumentDiagnosticsResponse(response) => {
@@ -371,9 +359,6 @@ impl AnyProtoClient {
                                 to_any_envelope(&envelope, response)
                             }
                             Response::GetImplementationResponse(response) => {
-                                to_any_envelope(&envelope, response)
-                            }
-                            Response::InlayHintsResponse(response) => {
                                 to_any_envelope(&envelope, response)
                             }
                             Response::SemanticTokensResponse(response) => {

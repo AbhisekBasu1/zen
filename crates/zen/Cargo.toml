@@ -1,0 +1,110 @@
+[package]
+description = "A calm, repo-native Markdown workspace for humans and AI agents."
+edition.workspace = true
+name = "zen"
+version = "1.2.0"
+publish.workspace = true
+license = "GPL-3.0-or-later"
+authors = ["Zen Maintainers"]
+default-run = "zen"
+
+[lints]
+workspace = true
+
+[features]
+tracy = ["ztracing/tracy"]
+# LEAK_BACKTRACE=1 cargo run --features zen/track-project-leak --profile release-fast
+track-project-leak = ["gpui/leak-detection"]
+test-support = [
+    "gpui/test-support",
+    "gpui_platform/screen-capture",
+    "dep:image",
+    "workspace/test-support",
+    "project/test-support",
+    "editor/test-support",
+]
+
+[[bin]]
+name = "zen"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+assets.workspace = true
+client.workspace = true
+collections.workspace = true
+editor.workspace = true
+file_finder.workspace = true
+fs.workspace = true
+futures.workspace = true
+git.workspace = true
+git_graph.workspace = true
+git_hosting_providers.workspace = true
+git_ui.workspace = true
+go_to_line.workspace = true
+gpui.workspace = true
+gpui_platform = { workspace = true, features = ["font-kit", "wayland", "x11"] }
+image = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
+clock = { workspace = true, optional = true }
+http_client.workspace = true
+language.workspace = true
+languages.workspace = true
+markdown_preview.workspace = true
+log.workspace = true
+menu.workspace = true
+mimalloc = { version = "0.1", optional = true }
+parking_lot.workspace = true
+paths.workspace = true
+project.workspace = true
+project_panel.workspace = true
+search.workspace = true
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+settings.workspace = true
+theme.workspace = true
+theme_settings.workspace = true
+ztracing.workspace = true
+ui.workspace = true
+url.workspace = true
+util.workspace = true
+uuid.workspace = true
+workspace.workspace = true
+zen_actions.workspace = true
+zlog.workspace = true
+
+[package.metadata.bundle-dev]
+icon = ["resources/app-icon-dev@2x.png", "resources/app-icon-dev.png"]
+identifier = "app.zen.Zen-Dev"
+name = "Zen Dev"
+osx_minimum_system_version = "10.15.7"
+osx_info_plist_exts = ["resources/info/*"]
+osx_url_schemes = ["zen"]
+
+[package.metadata.bundle-nightly]
+icon = ["resources/app-icon-nightly@2x.png", "resources/app-icon-nightly.png"]
+identifier = "app.zen.Zen-Nightly"
+name = "Zen Nightly"
+osx_minimum_system_version = "10.15.7"
+osx_info_plist_exts = ["resources/info/*"]
+osx_url_schemes = ["zen"]
+
+[package.metadata.bundle-preview]
+icon = ["resources/app-icon-preview@2x.png", "resources/app-icon-preview.png"]
+identifier = "app.zen.Zen-Preview"
+name = "Zen Preview"
+osx_minimum_system_version = "10.15.7"
+osx_info_plist_exts = ["resources/info/*"]
+osx_url_schemes = ["zen"]
+
+[package.metadata.bundle-stable]
+icon = ["resources/app-icon@2x.png", "resources/app-icon.png"]
+identifier = "app.zen.Zen"
+name = "Zen"
+osx_minimum_system_version = "10.15.7"
+osx_info_plist_exts = ["resources/info/*"]
+osx_url_schemes = ["zen"]
+
+[package.metadata.cargo-machete]
+ignored = ["profiling", "zstd", "tracing"]

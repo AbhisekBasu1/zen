@@ -1,156 +1,56 @@
-# Contributing to Zed
+# Contributing
 
-Thank you for helping us make Zed better!
+Zen is a calm, repo-native Markdown workspace derived from Zed. Contributions should preserve that narrow scope.
 
-All activity in Zed forums is subject to our [Code of
-Conduct](https://zed.dev/code-of-conduct). Additionally, contributors must sign
-our [Contributor License Agreement](https://zed.dev/cla) before their
-contributions can be merged.
+## Product scope
 
-## Contribution ideas
+Accepted work should support one of these areas:
 
-Zed is a large project with a number of priorities. We spend most of
-our time working on what we believe the product needs, but we also love working
-with the community to improve the product in ways we haven't thought of (or had time to get to yet!)
+- Reading and editing Markdown.
+- Markdown preview.
+- File and project search.
+- Reading and editing code files.
+- Git and GitHub visualization.
+- Stability, packaging, performance, or documentation for the focused app.
 
-In particular we love PRs that are:
+Avoid reintroducing removed product areas unless they are explicitly approved:
 
-- Fixing or extending the docs.
-- Fixing bugs.
-- Small enhancements to existing features to make them work for more people (making things work on more platforms/modes/whatever).
-- Small extra features, like keybindings or actions you miss from other editors or extensions.
-- Part of a Community Program like [Let's Git Together](https://github.com/zed-industries/zed/issues/41541).
+- AI assistants.
+- Collaboration.
+- Remote development.
+- Extension marketplace functionality.
+- Terminal-first workflows.
+- Debugger UI.
+- Accounts, telemetry, or cloud services.
 
-If you're looking for concrete ideas:
+## Development guidelines
 
-- [Triaged bugs with confirmed steps to reproduce](https://github.com/zed-industries/zed/issues?q=is%3Aissue%20state%3Aopen%20type%3ABug%20label%3Astate%3Areproducible).
-- [Area labels](https://github.com/zed-industries/zed/labels?q=area%3A*) to browse bugs in a specific part of the product you care about (after clicking on an area label, add type:Bug to the search).
+- Prefer simple, explicit changes over broad abstractions.
+- Preserve the editor core where possible rather than rebuilding existing behavior.
+- Avoid adding new crates or files unless there is a clear component boundary.
+- Propagate errors instead of panicking or silently discarding failures.
+- Do not use `unwrap()` in new Rust code unless there is a narrow, justified reason.
+- Use full words for variable names.
+- Use `./script/clippy` instead of `cargo clippy`.
 
-If you're thinking about proposing or building a larger feature, read the [Zed Feature Process](./docs/src/development/feature-process.md) for how we think about feature design — what context to provide, what integration points to consider, and how to put together a strong proposal.
+## Before opening a pull request
 
-## Sending changes
+Run the smallest checks that are relevant to your change. For most Rust changes, start with:
 
-The Zed culture values working code and synchronous conversations over long
-discussion threads.
+```sh
+cargo check -p zen
+```
 
-The best way to get us to take a look at a proposed change is to send a pull
-request. We will get back to you (though this sometimes takes longer than we'd
-like, sorry).
+For documentation-only changes, a code build is usually unnecessary.
 
-Although we will take a look, we tend to only merge about half the PRs that are
-submitted. If you'd like your PR to have the best chance of being merged:
+## Pull request format
 
-- Make sure the change is **desired**: we're always happy to accept bugfixes,
-  but features should be confirmed with us first if you aim to avoid wasted
-  effort. If there isn't already a GitHub issue for your feature with staff
-  confirmation that we want it, start with a GitHub discussion rather than a PR.
-- Include a clear description of **what you're solving**, and why it's important.
-- Include **tests**. For UI changes, consider updating visual regression tests (see [Building Zed for macOS](./docs/src/development/macos.md#visual-regression-tests)).
-- If it changes the UI, attach **screenshots** or screen recordings.
-- Make the PR about **one thing only**, e.g. if it's a bugfix, don't add two
-  features and a refactoring on top of that.
-- Keep AI assistance under your judgement and responsibility: it's unlikely
-  we'll merge a vibe-coded PR that the author doesn't understand.
+Use a clear, imperative title without conventional commit prefixes. Include release notes at the end of the pull request body:
 
-The internal advice for reviewers is as follows:
+```text
+Release Notes:
 
-- If the fix/feature is obviously great, and the code is great. Hit merge.
-- If the fix/feature is obviously great, and the code is nearly great. Send PR comments, or offer to pair to get things perfect.
-- If the fix/feature is not obviously great, or the code needs rewriting from scratch. Close the PR with a thank you and some explanation.
+- Fixed ...
+```
 
-If you need more feedback from us: the best way is to be responsive to
-Github comments, or to offer up time to pair with us.
-
-If you need help deciding how to fix a bug, or finish implementing a feature
-that we've agreed we want, please open a PR early so we can discuss how to make
-the change with code in hand.
-
-### UI/UX checklist
-
-When your changes affect UI, consult this checklist:
-
-**Accessibility / Ergonomics**
-- Do all keyboard shortcuts work as intended?
-- Are shortcuts discoverable (tooltips, menus, docs)?
-- Do all mouse actions work (drag, context menus, resizing, scrolling)?
-- Does the feature look great in light mode and dark mode?
-- Are hover states, focus rings, and active states clear and consistent?
-- Is it usable without a mouse (keyboard-only navigation)?
-
-**Responsiveness**
-- Does the UI scale gracefully on:
-    - Narrow panes (e.g., side-by-side split views)?
-    - Short panes (e.g., laptops with 13" displays)?
-    - High-DPI / Retina displays?
-- Does resizing panes or windows keep the UI usable and attractive?
-- Do dialogs or modals stay centered and within viewport bounds?
-
-**Platform Consistency**
-- Is the feature fully usable on Windows, Linux, and Mac?
-- Does it respect system-level settings (fonts, scaling, input methods)?
-
-**Performance**
-- All user interactions must have instant feedback.
-    - If the user requests something slow (e.g. an LLM generation) there should be some indication of the work in progress.
-- Does it handle large files, big projects, or heavy workloads without degrading?
-- Frames must take no more than 8ms (120fps)
-
-**Consistency**
-- Does it match Zed’s design language (spacing, typography, icons)?
-- Are terminology, labels, and tone consistent with the rest of Zed?
-- Are interactions consistent (e.g., how tabs close, how modals dismiss, how errors show)?
-
-**Internationalization & Text**
-- Are strings concise, clear, and unambiguous?
-- Do we avoid internal Zed jargon that only insiders would know?
-
-**User Paths & Edge Cases**
-- What does the happy path look like?
-- What does the unhappy path look like? (errors, rejections, invalid states)
-- How does it work in offline vs. online states?
-- How does it work in unauthenticated vs. authenticated states?
-- How does it behave if data is missing, corrupted, or delayed?
-- Are error messages actionable and consistent with Zed’s voice?
-
-**Discoverability & Learning**
-- Can a first-time user figure it out without docs?
-- Is there an intuitive way to undo/redo actions?
-- Are power features discoverable but not intrusive?
-- Is there a path from beginner → expert usage (progressive disclosure)?
-
-
-## Things we will (probably) not merge
-
-Although there are few hard and fast rules, typically we don't merge:
-
-- Anything that can be provided by an extension. For example a new language, or theme. For adding themes or support for a new language to Zed, check out our [docs on developing extensions](https://zed.dev/docs/extensions/developing-extensions).
-- New file icons. Zed's default icon theme consists of icons that are hand-designed to fit together in a cohesive manner, please don't submit PRs with off-the-shelf SVGs.
-- Features where (in our subjective opinion) the extra complexity isn't worth it for the number of people who will benefit.
-- Giant refactorings.
-- Non-trivial changes with no tests.
-- Stylistic code changes that do not alter any app logic. Reducing allocations, removing `.unwrap()`s, fixing typos is great; making code "more readable" — maybe not so much.
-- Anything that seems AI-generated without understanding the output.
-
-## Bird's-eye view of Zed
-
-We suggest you keep the [Zed glossary](docs/src/development/glossary.md) at your side when starting out. It lists and explains some of the structures and terms you will see throughout the codebase.
-
-Zed is made up of several smaller crates - let's go over those you're most likely to interact with:
-
-- [`gpui`](/crates/gpui) is a GPU-accelerated UI framework which provides all of the building blocks for Zed. **We recommend familiarizing yourself with the root level GPUI documentation.**
-- [`editor`](/crates/editor) contains the core `Editor` type that drives both the code editor and all various input fields within Zed. It also handles a display layer for LSP features such as Inlay Hints or code completions.
-- [`project`](/crates/project) manages files and navigation within the filetree. It is also Zed's side of communication with LSP.
-- [`workspace`](/crates/workspace) handles local state serialization and groups projects together.
-- [`vim`](/crates/vim) is a thin implementation of Vim workflow over `editor`.
-- [`lsp`](/crates/lsp) handles communication with external LSP server.
-- [`language`](/crates/language) drives `editor`'s understanding of language - from providing a list of symbols to the syntax map.
-- [`collab`](/crates/collab) is the collaboration server itself, driving the collaboration features such as project sharing.
-- [`rpc`](/crates/rpc) defines messages to be exchanged with collaboration server.
-- [`theme`](/crates/theme) defines the theme system and provides a default theme.
-- [`ui`](/crates/ui) is a collection of UI components and common patterns used throughout Zed.
-- [`cli`](/crates/cli) is the CLI crate which invokes the Zed binary.
-- [`zed`](/crates/zed) is where all things come together, and the `main` entry point for Zed.
-
-## Packaging Zed
-
-Check our [notes for packaging Zed](https://zed.dev/docs/development/linux#notes-for-packaging-zed).
+Use `- N/A` for docs-only or internal-only changes.

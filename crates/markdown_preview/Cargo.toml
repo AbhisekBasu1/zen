@@ -20,7 +20,7 @@ editor.workspace = true
 gpui.workspace = true
 language.workspace = true
 log.workspace = true
-markdown.workspace = true
+markdown = { workspace = true, features = ["html-preview"] }
 project.workspace = true
 settings.workspace = true
 theme.workspace = true
@@ -29,7 +29,7 @@ ui.workspace = true
 urlencoding.workspace = true
 util.workspace = true
 workspace.workspace = true
-zed_actions.workspace = true
+zen_actions.workspace = true
 
 [dev-dependencies]
 editor = { workspace = true, features = ["test-support"] }

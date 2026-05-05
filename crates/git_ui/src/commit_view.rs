@@ -256,7 +256,6 @@ impl CommitView {
 
             editor.disable_inline_diagnostics();
             editor.set_show_bookmarks(false, cx);
-            editor.set_show_breakpoints(false, cx);
             editor.set_show_diff_review_button(true, cx);
             editor.set_expand_all_diff_hunks(cx);
             editor.disable_header_for_buffer(message_buffer.read(cx).remote_id(), cx);
@@ -1140,13 +1139,13 @@ impl Render for CommitViewToolbar {
                     .tooltip(move |_, cx| {
                         Tooltip::for_action(
                             "Buffer Search",
-                            &zed_actions::buffer_search::Deploy::find(),
+                            &zen_actions::buffer_search::Deploy::find(),
                             cx,
                         )
                     })
                     .on_click(|_, window, cx| {
                         window.dispatch_action(
-                            Box::new(zed_actions::buffer_search::Deploy::find()),
+                            Box::new(zen_actions::buffer_search::Deploy::find()),
                             cx,
                         );
                     }),

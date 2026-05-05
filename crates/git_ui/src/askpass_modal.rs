@@ -1,6 +1,6 @@
-use askpass::EncryptedPassword;
 use editor::Editor;
 use futures::channel::oneshot;
+use git::EncryptedPassword;
 use gpui::{AppContext, DismissEvent, Entity, EventEmitter, Focusable, Styled};
 use ui::{
     ActiveTheme, AnyElement, App, Button, Clickable, Color, Context, DynamicSpacing, Headline,
@@ -10,7 +10,6 @@ use ui::{
 };
 use util::maybe;
 use workspace::ModalView;
-use zeroize::Zeroize;
 
 pub(crate) struct AskPassModal {
     operation: SharedString,
@@ -59,13 +58,12 @@ impl AskPassModal {
     fn confirm(&mut self, _: &menu::Confirm, window: &mut Window, cx: &mut Context<Self>) {
         maybe!({
             let tx = self.tx.take()?;
-            let mut text = self.editor.update(cx, |this, cx| {
+            let text = self.editor.update(cx, |this, cx| {
                 let text = this.text(cx);
                 this.clear(window, cx);
                 text
             });
-            let pw = askpass::EncryptedPassword::try_from(text.as_ref()).ok()?;
-            text.zeroize();
+            let pw = EncryptedPassword::try_from(text.as_ref()).ok()?;
             tx.send(pw).ok();
             Some(())
         });

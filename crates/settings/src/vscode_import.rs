@@ -4,11 +4,10 @@ use collections::HashMap;
 use fs::Fs;
 use gpui::Rgba;
 use paths::{cursor_settings_file_paths, vscode_settings_file_paths};
-use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::{
     num::{NonZeroU32, NonZeroUsize},
-    path::{Path, PathBuf},
+    path::Path,
     sync::Arc,
 };
 
@@ -109,10 +108,6 @@ impl VsCodeSettings {
             .map(|v| v as f32)
     }
 
-    fn read_u64(&self, setting: &str) -> Option<u64> {
-        self.read_value(setting).and_then(|v| v.as_u64())
-    }
-
     fn read_usize(&self, setting: &str) -> Option<usize> {
         self.read_value(setting)
             .and_then(|v| v.as_u64())
@@ -172,18 +167,9 @@ impl VsCodeSettings {
 
     pub fn settings_content(&self) -> SettingsContent {
         SettingsContent {
-            agent: self.agent_settings_content(),
-            agent_servers: None,
-            audio: None,
-            auto_update: None,
             base_keymap: Some(BaseKeymapContent::VSCode),
-            calls: None,
-            collaboration_panel: None,
-            credentials_url: None,
-            debugger: None,
             diagnostics: None,
             editor: self.editor_settings_content(),
-            extension: ExtensionSettingsContent::default(),
             file_finder: None,
             git: self.git_settings_content(),
             git_panel: self.git_panel_settings_content(),
@@ -191,53 +177,30 @@ impl VsCodeSettings {
                 semantic_token_rules: self.semantic_token_rules(),
                 ..GlobalLspSettingsContent::default()
             }),
-            helix_mode: None,
-            image_viewer: None,
-            journal: None,
-            language_models: None,
             line_indicator_format: None,
             log: None,
             message_editor: None,
             node: self.node_binary_settings(),
 
-            outline_panel: self.outline_panel_settings_content(),
             preview_tabs: self.preview_tabs_settings_content(),
             project: self.project_settings_content(),
             project_panel: self.project_panel_settings_content(),
             proxy: self.read_string("http.proxy"),
             remote: RemoteSettingsContent::default(),
-            repl: None,
-            server_url: None,
             session: None,
             status_bar: self.status_bar_settings_content(),
             tab_bar: self.tab_bar_settings_content(),
             tabs: self.item_settings_content(),
-            telemetry: self.telemetry_settings_content(),
-            terminal: self.terminal_settings_content(),
             theme: Box::new(self.theme_settings_content()),
             title_bar: None,
-            vim: None,
-            vim_mode: None,
             workspace: self.workspace_settings_content(),
-            which_key: None,
             modeline_lines: None,
             feature_flags: None,
-            instrumentation: None,
         }
-    }
-
-    fn agent_settings_content(&self) -> Option<AgentSettingsContent> {
-        let enabled = self.read_bool("chat.agent.enabled");
-        skip_default(AgentSettingsContent {
-            enabled: enabled,
-            button: enabled,
-            ..Default::default()
-        })
     }
 
     fn editor_settings_content(&self) -> EditorSettingsContent {
         EditorSettingsContent {
-            auto_signature_help: self.read_bool("editor.parameterHints.enabled"),
             autoscroll_on_clicks: None,
             cursor_blink: self.read_enum("editor.cursorBlinking", |s| match s {
                 "blink" | "phase" | "expand" | "smooth" => Some(true),
@@ -269,17 +232,9 @@ impl VsCodeSettings {
             gutter: self.gutter_content(),
             hide_mouse: None,
             horizontal_scroll_margin: None,
-            hover_popover_delay: self.read_u64("editor.hover.delay").map(Into::into),
-            hover_popover_enabled: self.read_bool("editor.hover.enabled"),
-            hover_popover_sticky: self.read_bool("editor.hover.sticky"),
-            hover_popover_hiding_delay: self.read_u64("editor.hover.hidingDelay").map(Into::into),
             inline_code_actions: None,
-            code_lens: None,
-            jupyter: None,
-            lsp_document_colors: None,
             lsp_highlight_debounce: None,
             middle_click_paste: None,
-            minimap: self.minimap_content(),
             minimum_contrast_for_highlights: None,
             multi_cursor_modifier: self.read_enum("editor.multiCursorModifier", |s| match s {
                 "ctrlCmd" => Some(MultiCursorModifier::CmdOrCtrl),
@@ -308,7 +263,6 @@ impl VsCodeSettings {
                 },
             ),
             selection_highlight: self.read_bool("editor.selectionHighlight"),
-            show_signature_help_after_edits: self.read_bool("editor.parameterHints.enabled"),
             snippet_sort_order: None,
             toolbar: None,
             use_smartcase_search: self.read_bool("search.smartCase"),
@@ -334,8 +288,6 @@ impl VsCodeSettings {
                 _ => None,
             }),
             min_line_number_digits: None,
-            runnables: None,
-            breakpoints: None,
             bookmarks: None,
             folds: self.read_enum("editor.showFoldingControls", |s| match s {
                 "always" | "mouseover" => Some(true),
@@ -471,30 +423,6 @@ impl VsCodeSettings {
         })
     }
 
-    fn minimap_content(&self) -> Option<MinimapContent> {
-        let minimap_enabled = self.read_bool("editor.minimap.enabled");
-        let autohide = self.read_bool("editor.minimap.autohide");
-        let show = match (minimap_enabled, autohide) {
-            (Some(true), Some(false)) => Some(ShowMinimap::Always),
-            (Some(true), _) => Some(ShowMinimap::Auto),
-            (Some(false), _) => Some(ShowMinimap::Never),
-            _ => None,
-        };
-
-        skip_default(MinimapContent {
-            show,
-            thumb: self.read_enum("editor.minimap.showSlider", |s| match s {
-                "always" => Some(MinimapThumb::Always),
-                "mouseover" => Some(MinimapThumb::Hover),
-                _ => None,
-            }),
-            max_width_columns: self
-                .read_u32("editor.minimap.maxColumn")
-                .and_then(|v| NonZeroU32::new(v)),
-            ..Default::default()
-        })
-    }
-
     fn git_panel_settings_content(&self) -> Option<GitPanelSettingsContent> {
         skip_default(GitPanelSettingsContent {
             button: self.read_bool("git.enabled"),
@@ -506,20 +434,14 @@ impl VsCodeSettings {
     fn project_settings_content(&self) -> ProjectSettingsContent {
         ProjectSettingsContent {
             all_languages: AllLanguageSettingsContent {
-                edit_predictions: self.edit_predictions_settings_content(),
                 defaults: self.default_language_settings_content(),
                 languages: Default::default(),
                 file_types: self.file_types(),
             },
             worktree: self.worktree_settings_content(),
             lsp: Default::default(),
-            terminal: None,
-            dap: Default::default(),
-            context_servers: self.context_servers(),
-            context_server_timeout: None,
             load_direnv: None,
             git_hosting_providers: None,
-            disable_ai: None,
         }
     }
 
@@ -540,8 +462,6 @@ impl VsCodeSettings {
                 }),
                 ..Default::default()
             }),
-            debuggers: None,
-            edit_predictions_disabled_in: None,
             enable_language_server: None,
             ensure_final_newline_on_save: self.read_bool("files.insertFinalNewline"),
             line_ending: self.read_enum("files.eol", |s| match s {
@@ -566,7 +486,6 @@ impl VsCodeSettings {
                 enabled: self.read_bool("editor.guides.indentation"),
                 ..Default::default()
             }),
-            inlay_hints: None,
             jsx_tag_auto_close: None,
             language_servers: None,
             semantic_tokens: self
@@ -578,8 +497,6 @@ impl VsCodeSettings {
                         SemanticTokens::Off
                     }
                 }),
-            document_folding_ranges: None,
-            document_symbols: None,
             linked_edits: self.read_bool("editor.linkedEditing"),
             preferred_line_length: self.read_u32("editor.wordWrapColumn"),
             prettier: None,
@@ -587,7 +504,6 @@ impl VsCodeSettings {
             show_completion_documentation: None,
             colorize_brackets: self.read_bool("editor.bracketPairColorization.enabled"),
             show_completions_on_input: self.read_bool("editor.suggestOnTriggerCharacters"),
-            show_edit_predictions: self.read_bool("editor.inlineSuggest.enabled"),
             show_whitespaces: self.read_enum("editor.renderWhitespace", |s| {
                 Some(match s {
                     "boundary" => ShowWhitespaceSetting::Boundary,
@@ -608,7 +524,6 @@ impl VsCodeSettings {
             tab_size: self
                 .read_u32("editor.tabSize")
                 .and_then(|n| NonZeroU32::new(n)),
-            tasks: None,
             use_auto_surround: self.read_enum("editor.autoSurround", |s| match s {
                 "languageDefined" | "quotes" | "brackets" => Some(true),
                 "never" => Some(false),
@@ -640,32 +555,6 @@ impl VsCodeSettings {
         skip_default(associations)
     }
 
-    fn edit_predictions_settings_content(&self) -> Option<EditPredictionSettingsContent> {
-        let disabled_globs = self
-            .read_value("cursor.general.globalCursorIgnoreList")?
-            .as_array()?;
-
-        skip_default(EditPredictionSettingsContent {
-            disabled_globs: skip_default(
-                disabled_globs
-                    .iter()
-                    .filter_map(|glob| glob.as_str())
-                    .map(|s| s.to_string())
-                    .collect(),
-            ),
-            ..Default::default()
-        })
-    }
-
-    fn outline_panel_settings_content(&self) -> Option<OutlinePanelSettingsContent> {
-        skip_default(OutlinePanelSettingsContent {
-            file_icons: self.read_bool("outline.icons"),
-            folder_icons: self.read_bool("outline.icons"),
-            git_status: self.read_bool("git.decorations.enabled"),
-            ..Default::default()
-        })
-    }
-
     fn node_binary_settings(&self) -> Option<NodeBinarySettings> {
         // this just sets the binary name instead of a full path so it relies on path lookup
         // resolving to the one you want
@@ -687,38 +576,6 @@ impl VsCodeSettings {
             }),
             ..Default::default()
         })
-    }
-
-    fn context_servers(&self) -> HashMap<Arc<str>, ContextServerSettingsContent> {
-        #[derive(Deserialize)]
-        struct VsCodeContextServerCommand {
-            command: PathBuf,
-            args: Option<Vec<String>>,
-            env: Option<HashMap<String, String>>,
-            // note: we don't support envFile and type
-        }
-        let Some(mcp) = self.read_value("mcp").and_then(|v| v.as_object()) else {
-            return Default::default();
-        };
-        mcp.iter()
-            .filter_map(|(k, v)| {
-                Some((
-                    k.clone().into(),
-                    ContextServerSettingsContent::Stdio {
-                        enabled: true,
-                        remote: false,
-                        command: serde_json::from_value::<VsCodeContextServerCommand>(v.clone())
-                            .ok()
-                            .map(|cmd| ContextServerCommand {
-                                path: cmd.command,
-                                args: cmd.args.unwrap_or_default(),
-                                env: cmd.env,
-                                timeout: None,
-                            })?,
-                    },
-                ))
-            })
-            .collect()
     }
 
     fn item_settings_content(&self) -> Option<ItemSettingsContent> {
@@ -849,117 +706,6 @@ impl VsCodeSettings {
 
         skip_default(project_panel_settings)
     }
-
-    fn telemetry_settings_content(&self) -> Option<TelemetrySettingsContent> {
-        self.read_enum("telemetry.telemetryLevel", |level| {
-            let (metrics, diagnostics) = match level {
-                "all" => (true, true),
-                "error" | "crash" => (false, true),
-                "off" => (false, false),
-                _ => return None,
-            };
-            Some(TelemetrySettingsContent {
-                metrics: Some(metrics),
-                diagnostics: Some(diagnostics),
-            })
-        })
-    }
-
-    fn terminal_settings_content(&self) -> Option<TerminalSettingsContent> {
-        let (font_family, font_fallbacks) = self.read_fonts("terminal.integrated.fontFamily");
-        skip_default(TerminalSettingsContent {
-            alternate_scroll: None,
-            blinking: self
-                .read_bool("terminal.integrated.cursorBlinking")
-                .map(|b| {
-                    if b {
-                        TerminalBlink::On
-                    } else {
-                        TerminalBlink::Off
-                    }
-                }),
-            button: None,
-            copy_on_select: self.read_bool("terminal.integrated.copyOnSelection"),
-            cursor_shape: self.read_enum("terminal.integrated.cursorStyle", |s| match s {
-                "block" => Some(CursorShapeContent::Block),
-                "line" => Some(CursorShapeContent::Bar),
-                "underline" => Some(CursorShapeContent::Underline),
-                _ => None,
-            }),
-            default_height: None,
-            default_width: None,
-            dock: None,
-            font_fallbacks,
-            font_family,
-            font_features: None,
-            font_size: self
-                .read_f32("terminal.integrated.fontSize")
-                .map(FontSize::from),
-            font_weight: None,
-            keep_selection_on_copy: None,
-            line_height: self
-                .read_f32("terminal.integrated.lineHeight")
-                .map(|lh| TerminalLineHeight::Custom(lh)),
-            max_scroll_history_lines: self.read_usize("terminal.integrated.scrollback"),
-            bell: self
-                .read_value("accessibility.signals.terminalBell")
-                .and_then(|v| Some(v.get("sound")?.as_str()? == "on"))
-                .or_else(|| {
-                    // Older deprecated setting, might as well still support it:
-                    self.read_value("terminal.integrated.enableBell")
-                        .map(|v| v.as_bool() == Some(true) || v.as_str() == Some("both"))
-                })
-                .map(|enabled| {
-                    if enabled {
-                        TerminalBell::System
-                    } else {
-                        TerminalBell::Off
-                    }
-                }),
-            minimum_contrast: None,
-            option_as_meta: self.read_bool("terminal.integrated.macOptionIsMeta"),
-            project: self.project_terminal_settings_content(),
-            scrollbar: None,
-            scroll_multiplier: None,
-            toolbar: None,
-            show_count_badge: None,
-            flexible: None,
-        })
-    }
-
-    fn project_terminal_settings_content(&self) -> ProjectTerminalSettingsContent {
-        #[cfg(target_os = "windows")]
-        let platform = "windows";
-        #[cfg(target_os = "linux")]
-        let platform = "linux";
-        #[cfg(target_os = "macos")]
-        let platform = "osx";
-        #[cfg(target_os = "freebsd")]
-        let platform = "freebsd";
-        let env = self
-            .read_value(&format!("terminal.integrated.env.{platform}"))
-            .and_then(|v| v.as_object())
-            .map(|v| {
-                v.iter()
-                    .map(|(k, v)| (k.clone(), v.to_string()))
-                    // zed does not support substitutions, so this can break env vars
-                    .filter(|(_, v)| !v.contains('$'))
-                    .collect()
-            });
-
-        ProjectTerminalSettingsContent {
-            // TODO: handle arguments
-            shell: self
-                .read_string(&format!("terminal.integrated.{platform}Exec"))
-                .map(|s| Shell::Program(s)),
-            working_directory: None,
-            env,
-            detect_venv: None,
-            path_hyperlink_regexes: None,
-            path_hyperlink_timeout_ms: None,
-        }
-    }
-
     fn theme_settings_content(&self) -> ThemeSettingsContent {
         let (buffer_font_family, buffer_font_fallbacks) = self.read_fonts("editor.fontFamily");
         ThemeSettingsContent {
@@ -974,8 +720,6 @@ impl VsCodeSettings {
             buffer_font_weight: self.read_f32("editor.fontWeight").map(FontWeightContent),
             buffer_line_height: None,
             buffer_font_features: None,
-            agent_ui_font_size: None,
-            agent_buffer_font_size: None,
             markdown_preview_font_family: None,
             markdown_preview_theme: None,
             theme: None,
@@ -1032,7 +776,6 @@ impl VsCodeSettings {
             restore_on_file_reopen: self.read_bool("workbench.editor.restoreViewState"),
             restore_on_startup: None,
             window_decorations: None,
-            show_call_status_icon: None,
             use_system_path_prompts: self.read_bool("files.simpleDialog.enable"),
             use_system_prompts: None,
             use_system_window_tabs: self.read_bool("window.nativeTabs"),

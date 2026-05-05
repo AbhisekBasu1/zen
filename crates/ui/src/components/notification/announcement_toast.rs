@@ -171,16 +171,16 @@ impl Component for AnnouncementToast {
                 .w_80()
                 .child(
                     AnnouncementToast::new()
-                        .heading("Introducing Parallel Agents")
-                        .description("Run multiple agent threads simultaneously across projects.")
+                        .heading("Introducing Focused Markdown Review")
+                        .description("Review repository context documents with less surface area.")
                         .bullet_item(ListBulletItem::new(
-                            "Mix and match Zed's agent with any ACP-compatible agent",
+                            "Preview Markdown while keeping related code nearby",
                         ))
                         .bullet_item(ListBulletItem::new(
-                            "Optional worktree isolation keeps agents from conflicting",
+                            "Keep agent instructions, specs, and runbooks easy to scan",
                         ))
                         .bullet_item(ListBulletItem::new(
-                            "Updated workspace layout designed for agentic workflows",
+                            "Use search and Git context without leaving the workspace",
                         ))
                         .primary_action_label("Try Now")
                         .secondary_action_label("Learn More"),

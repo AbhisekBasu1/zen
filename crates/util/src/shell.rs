@@ -102,7 +102,7 @@ pub fn get_windows_bash() -> Option<String> {
 
     fn find_bash_in_git() -> Option<PathBuf> {
         // /path/to/git/cmd/git.exe/../../bin/bash.exe
-        let git = which::which("git").ok()?;
+        let git = crate::command::find_executable("git")?;
         let git_bash = git.parent()?.parent()?.join("bin").join("bash.exe");
         git_bash.exists().then_some(git_bash)
     }
@@ -215,8 +215,8 @@ pub fn get_windows_system_shell() -> String {
             || find_pwsh_in_msix(true),
             || find_pwsh_in_programfiles(true, true),
             || find_pwsh_in_scoop(),
-            || which::which_global("pwsh.exe").ok(),
-            || which::which_global("powershell.exe").ok(),
+            || crate::command::find_global_executable("pwsh.exe"),
+            || crate::command::find_global_executable("powershell.exe"),
         ];
 
         locations

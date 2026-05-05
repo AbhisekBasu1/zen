@@ -1,13 +1,10 @@
-use core::num;
-
 use gpui::App;
 use language::CursorShape;
 use project::project_settings::DiagnosticSeverity;
 pub use settings::{
-    CodeLens, CompletionDetailAlignment, CurrentLineHighlight, DelayMs, DiffViewStyle, DisplayIn,
-    DocumentColorsRenderMode, DoubleClickInMultibuffer, GoToDefinitionFallback,
-    GoToDefinitionScrollStrategy, HideMouseMode, MinimapThumb, MinimapThumbBorder,
-    MultiCursorModifier, ScrollBeyondLastLine, ScrollbarDiagnostics, SeedQuerySetting, ShowMinimap,
+    CompletionDetailAlignment, CurrentLineHighlight, DelayMs, DiffViewStyle,
+    DoubleClickInMultibuffer, GoToDefinitionFallback, GoToDefinitionScrollStrategy, HideMouseMode,
+    MultiCursorModifier, ScrollBeyondLastLine, ScrollbarDiagnostics, SeedQuerySetting,
     SnippetSortOrder,
 };
 use settings::{RegisterSetting, RelativeLineNumbers, Settings};
@@ -23,13 +20,8 @@ pub struct EditorSettings {
     pub selection_highlight: bool,
     pub rounded_selection: bool,
     pub lsp_highlight_debounce: DelayMs,
-    pub hover_popover_enabled: bool,
-    pub hover_popover_delay: DelayMs,
-    pub hover_popover_sticky: bool,
-    pub hover_popover_hiding_delay: DelayMs,
     pub toolbar: Toolbar,
     pub scrollbar: Scrollbar,
-    pub minimap: Minimap,
     pub gutter: Gutter,
     pub scroll_beyond_last_line: ScrollBeyondLastLine,
     pub vertical_scroll_margin: f64,
@@ -50,32 +42,19 @@ pub struct EditorSettings {
     pub double_click_in_multibuffer: DoubleClickInMultibuffer,
     pub search_wrap: bool,
     pub search: SearchSettings,
-    pub auto_signature_help: bool,
-    pub show_signature_help_after_edits: bool,
     pub go_to_definition_fallback: GoToDefinitionFallback,
     pub go_to_definition_scroll_strategy: GoToDefinitionScrollStrategy,
-    pub jupyter: Jupyter,
     pub hide_mouse: Option<HideMouseMode>,
     pub snippet_sort_order: SnippetSortOrder,
     pub diagnostics_max_severity: Option<DiagnosticSeverity>,
     pub inline_code_actions: bool,
     pub drag_and_drop_selection: DragAndDropSelection,
-    pub code_lens: CodeLens,
-    pub lsp_document_colors: DocumentColorsRenderMode,
     pub minimum_contrast_for_highlights: f32,
     pub completion_menu_scrollbar: ShowScrollbar,
     pub completion_detail_alignment: CompletionDetailAlignment,
     pub diff_view_style: DiffViewStyle,
     pub minimum_split_diff_width: f32,
 }
-#[derive(Debug, Clone)]
-pub struct Jupyter {
-    /// Whether the Jupyter feature is enabled.
-    ///
-    /// Default: true
-    pub enabled: bool,
-}
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct StickyScroll {
     pub enabled: bool,
@@ -83,10 +62,8 @@ pub struct StickyScroll {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Toolbar {
-    pub breadcrumbs: bool,
     pub quick_actions: bool,
     pub selections_menu: bool,
-    pub agent_review: bool,
     pub code_actions: bool,
 }
 
@@ -102,40 +79,10 @@ pub struct Scrollbar {
     pub axes: ScrollbarAxes,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Minimap {
-    pub show: ShowMinimap,
-    pub display_in: DisplayIn,
-    pub thumb: MinimapThumb,
-    pub thumb_border: MinimapThumbBorder,
-    pub current_line_highlight: Option<CurrentLineHighlight>,
-    pub max_width_columns: num::NonZeroU32,
-}
-
-impl Minimap {
-    pub fn minimap_enabled(&self) -> bool {
-        self.show != ShowMinimap::Never
-    }
-
-    #[inline]
-    pub fn on_active_editor(&self) -> bool {
-        self.display_in == DisplayIn::ActiveEditor
-    }
-
-    pub fn with_show_override(self) -> Self {
-        Self {
-            show: ShowMinimap::Always,
-            ..self
-        }
-    }
-}
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Gutter {
     pub min_line_number_digits: usize,
     pub line_numbers: bool,
-    pub runnables: bool,
-    pub breakpoints: bool,
     pub bookmarks: bool,
     pub folds: bool,
 }
@@ -185,17 +132,10 @@ pub struct SearchSettings {
     pub center_on_match: bool,
 }
 
-impl EditorSettings {
-    pub fn jupyter_enabled(cx: &App) -> bool {
-        EditorSettings::get_global(cx).jupyter.enabled
-    }
-}
-
 impl Settings for EditorSettings {
     fn from_settings(content: &settings::SettingsContent) -> Self {
         let editor = content.editor.clone();
         let scrollbar = editor.scrollbar.unwrap();
-        let minimap = editor.minimap.unwrap();
         let gutter = editor.gutter.unwrap();
         let axes = scrollbar.axes.unwrap();
         let toolbar = editor.toolbar.unwrap();
@@ -209,15 +149,9 @@ impl Settings for EditorSettings {
             selection_highlight: editor.selection_highlight.unwrap(),
             rounded_selection: editor.rounded_selection.unwrap(),
             lsp_highlight_debounce: editor.lsp_highlight_debounce.unwrap(),
-            hover_popover_enabled: editor.hover_popover_enabled.unwrap(),
-            hover_popover_delay: editor.hover_popover_delay.unwrap(),
-            hover_popover_sticky: editor.hover_popover_sticky.unwrap(),
-            hover_popover_hiding_delay: editor.hover_popover_hiding_delay.unwrap(),
             toolbar: Toolbar {
-                breadcrumbs: toolbar.breadcrumbs.unwrap(),
                 quick_actions: toolbar.quick_actions.unwrap(),
                 selections_menu: toolbar.selections_menu.unwrap(),
-                agent_review: toolbar.agent_review.unwrap(),
                 code_actions: toolbar.code_actions.unwrap(),
             },
             scrollbar: Scrollbar {
@@ -240,20 +174,10 @@ impl Settings for EditorSettings {
                     vertical: axes.vertical.unwrap(),
                 },
             },
-            minimap: Minimap {
-                show: minimap.show.unwrap(),
-                display_in: minimap.display_in.unwrap(),
-                thumb: minimap.thumb.unwrap(),
-                thumb_border: minimap.thumb_border.unwrap(),
-                current_line_highlight: minimap.current_line_highlight,
-                max_width_columns: minimap.max_width_columns.unwrap(),
-            },
             gutter: Gutter {
                 min_line_number_digits: gutter.min_line_number_digits.unwrap(),
                 line_numbers: gutter.line_numbers.unwrap(),
-                runnables: gutter.runnables.unwrap(),
                 bookmarks: gutter.bookmarks.unwrap(),
-                breakpoints: gutter.breakpoints.unwrap(),
                 folds: gutter.folds.unwrap(),
             },
             scroll_beyond_last_line: editor.scroll_beyond_last_line.unwrap(),
@@ -284,13 +208,8 @@ impl Settings for EditorSettings {
                 regex: search.regex.unwrap(),
                 center_on_match: search.center_on_match.unwrap(),
             },
-            auto_signature_help: editor.auto_signature_help.unwrap(),
-            show_signature_help_after_edits: editor.show_signature_help_after_edits.unwrap(),
             go_to_definition_fallback: editor.go_to_definition_fallback.unwrap(),
             go_to_definition_scroll_strategy: editor.go_to_definition_scroll_strategy.unwrap(),
-            jupyter: Jupyter {
-                enabled: editor.jupyter.unwrap().enabled.unwrap(),
-            },
             hide_mouse: editor.hide_mouse,
             snippet_sort_order: editor.snippet_sort_order.unwrap(),
             diagnostics_max_severity: editor.diagnostics_max_severity.map(Into::into),
@@ -299,8 +218,6 @@ impl Settings for EditorSettings {
                 enabled: drag_and_drop_selection.enabled.unwrap(),
                 delay: drag_and_drop_selection.delay.unwrap(),
             },
-            code_lens: editor.code_lens.unwrap(),
-            lsp_document_colors: editor.lsp_document_colors.unwrap(),
             minimum_contrast_for_highlights: editor.minimum_contrast_for_highlights.unwrap().0,
             completion_menu_scrollbar: editor
                 .completion_menu_scrollbar

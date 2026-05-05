@@ -18,14 +18,10 @@ pub mod modeline;
 mod outline;
 pub mod proto;
 mod syntax_map;
-mod task_context;
 mod text_diff;
 mod toolchain;
 
-#[cfg(test)]
-pub mod buffer_tests;
-
-pub use crate::language_settings::{AutoIndentMode, EditPredictionsMode, IndentGuideSettings};
+pub use crate::language_settings::{AutoIndentMode, IndentGuideSettings};
 use anyhow::{Context as _, Result};
 use async_trait::async_trait;
 use collections::{HashMap, HashSet};
@@ -40,11 +36,10 @@ pub use language_core::highlight_map::{HighlightId, HighlightMap};
 use futures::future::FutureExt as _;
 pub use language_core::{
     BlockCommentConfig, BracketPair, BracketPairConfig, BracketPairContent, BracketsConfig,
-    BracketsPatternConfig, CodeLabel, CodeLabelBuilder, DebugVariablesConfig, DebuggerTextObject,
-    DecreaseIndentConfig, Grammar, GrammarId, HighlightsConfig, IndentConfig, InjectionConfig,
-    InjectionPatternConfig, JsxTagAutoCloseConfig, LanguageConfig, LanguageConfigOverride,
-    LanguageId, LanguageMatcher, OrderedListConfig, OutlineConfig, Override, OverrideConfig,
-    OverrideEntry, PromptResponseContext, RedactionConfig, RunnableCapture, RunnableConfig,
+    BracketsPatternConfig, CodeLabel, CodeLabelBuilder, DecreaseIndentConfig, Grammar, GrammarId,
+    HighlightsConfig, IndentConfig, InjectionConfig, InjectionPatternConfig, JsxTagAutoCloseConfig,
+    LanguageConfig, LanguageConfigOverride, LanguageId, LanguageMatcher, OrderedListConfig,
+    OutlineConfig, Override, OverrideConfig, OverrideEntry, PromptResponseContext, RedactionConfig,
     SoftWrap, Symbol, TaskListConfig, TextObject, TextObjectConfig, ToLspPosition,
     WrapCharactersConfig, auto_indent_using_last_non_empty_line_default, deserialize_regex,
     deserialize_regex_vec, regex_json_schema, regex_vec_json_schema, serialize_regex,
@@ -73,8 +68,6 @@ use std::{
     sync::{Arc, LazyLock},
 };
 use syntax_map::{QueryCursorHandle, SyntaxSnapshot};
-use task::RunnableTag;
-pub use task_context::{ContextLocation, ContextProvider, RunnableRange};
 pub use text_diff::{
     DiffOptions, apply_diff_patch, apply_reversed_diff_patch, char_diff, line_diff, text_diff,
     text_diff_with_options, unified_diff, unified_diff_with_context, unified_diff_with_offsets,
@@ -85,7 +78,9 @@ pub use toolchain::{
     LanguageToolchainStore, LocalLanguageToolchainStore, Toolchain, ToolchainList, ToolchainLister,
     ToolchainMetadata, ToolchainScope,
 };
-use tree_sitter::{self, QueryCursor, WasmStore, wasmtime};
+use tree_sitter::{self, QueryCursor};
+#[cfg(feature = "wasm-grammars")]
+use tree_sitter::{WasmStore, wasmtime};
 use util::rel_path::RelPath;
 
 pub use buffer::Operation;
@@ -123,10 +118,16 @@ where
     F: FnOnce(&mut Parser) -> R,
 {
     let mut parser = PARSERS.lock().pop().unwrap_or_else(|| {
+        #[cfg(feature = "wasm-grammars")]
         let mut parser = Parser::new();
-        parser
-            .set_wasm_store(WasmStore::new(&WASM_ENGINE).unwrap())
-            .unwrap();
+        #[cfg(not(feature = "wasm-grammars"))]
+        let parser = Parser::new();
+        #[cfg(feature = "wasm-grammars")]
+        {
+            parser
+                .set_wasm_store(WasmStore::new(&WASM_ENGINE).unwrap())
+                .unwrap();
+        }
         parser
     });
     parser.set_included_ranges(&[]).unwrap();
@@ -143,6 +144,7 @@ where
     func(cursor.deref_mut())
 }
 
+#[cfg(feature = "wasm-grammars")]
 static WASM_ENGINE: LazyLock<wasmtime::Engine> = LazyLock::new(|| {
     wasmtime::Engine::new(&wasmtime::Config::new()).expect("Failed to create Wasmtime engine")
 });
@@ -203,17 +205,6 @@ pub static PLAIN_TEXT: LazyLock<Arc<Language>> = LazyLock::new(|| {
         None,
     ))
 });
-
-/// Commands that the client (editor) handles locally rather than forwarding
-/// to the language server. Servers embed these in code lens and code action
-/// responses when they want the editor to perform a well-known UI action.
-#[derive(Debug, Clone)]
-pub enum ClientCommand {
-    /// Open a location list (references panel / peek view).
-    ShowLocations,
-    /// Schedule a task from an LSP command's arguments.
-    ScheduleTask(task::TaskTemplate),
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Location {
@@ -568,14 +559,6 @@ pub trait LspAdapter: 'static + Send + Sync + DynLspInstaller {
         Ok(original)
     }
 
-    fn client_command(
-        &self,
-        _command_name: &str,
-        _arguments: &[serde_json::Value],
-    ) -> Option<ClientCommand> {
-        None
-    }
-
     /// Method only implemented by the default JSON language server adapter.
     /// Used to provide dynamic reloading of the JSON schemas used to
     /// provide autocompletion and diagnostics in Zed setting and keybind
@@ -849,7 +832,6 @@ pub struct Language {
     pub(crate) id: LanguageId,
     pub(crate) config: LanguageConfig,
     pub(crate) grammar: Option<Arc<Grammar>>,
-    pub(crate) context_provider: Option<Arc<dyn ContextProvider>>,
     pub(crate) toolchain: Option<Arc<dyn ToolchainLister>>,
     pub(crate) manifest_name: Option<ManifestName>,
 }
@@ -872,15 +854,9 @@ impl Language {
             id,
             config,
             grammar: ts_language.map(|ts_language| Arc::new(Grammar::new(ts_language))),
-            context_provider: None,
             toolchain: None,
             manifest_name: None,
         }
-    }
-
-    pub fn with_context_provider(mut self, provider: Option<Arc<dyn ContextProvider>>) -> Self {
-        self.context_provider = provider;
-        self
     }
 
     pub fn with_toolchain_lister(mut self, provider: Option<Arc<dyn ToolchainLister>>) -> Self {
@@ -907,10 +883,6 @@ impl Language {
         self.with_grammar_query(|grammar| grammar.with_highlights_query(source))
     }
 
-    pub fn with_runnable_query(self, source: &str) -> Result<Self> {
-        self.with_grammar_query(|grammar| grammar.with_runnable_query(source))
-    }
-
     pub fn with_outline_query(self, source: &str) -> Result<Self> {
         self.with_grammar_query_and_name(|grammar, name| grammar.with_outline_query(source, name))
     }
@@ -918,12 +890,6 @@ impl Language {
     pub fn with_text_object_query(self, source: &str) -> Result<Self> {
         self.with_grammar_query_and_name(|grammar, name| {
             grammar.with_text_object_query(source, name)
-        })
-    }
-
-    pub fn with_debug_variables_query(self, source: &str) -> Result<Self> {
-        self.with_grammar_query_and_name(|grammar, name| {
-            grammar.with_debug_variables_query(source, name)
         })
     }
 
@@ -995,27 +961,6 @@ impl Language {
             .code_fence_block_name
             .clone()
             .unwrap_or_else(|| self.config.name.as_ref().to_lowercase().into())
-    }
-
-    pub fn matches_kernel_language(&self, kernel_language: &str) -> bool {
-        let kernel_language_lower = kernel_language.to_lowercase();
-
-        if self.code_fence_block_name().to_lowercase() == kernel_language_lower {
-            return true;
-        }
-
-        if self.config.name.as_ref().to_lowercase() == kernel_language_lower {
-            return true;
-        }
-
-        self.config
-            .kernel_language_names
-            .iter()
-            .any(|name| name.to_lowercase() == kernel_language_lower)
-    }
-
-    pub fn context_provider(&self) -> Option<Arc<dyn ContextProvider>> {
-        self.context_provider.clone()
     }
 
     pub fn toolchain_lister(&self) -> Option<Arc<dyn ToolchainLister>> {
@@ -1586,12 +1531,6 @@ pub fn rust_lang() -> Arc<Language> {
             "../../grammars/src/rust/overrides.scm"
         ))),
         redactions: None,
-        runnables: Some(Cow::from(include_str!(
-            "../../grammars/src/rust/runnables.scm"
-        ))),
-        debugger: Some(Cow::from(include_str!(
-            "../../grammars/src/rust/debugger.scm"
-        ))),
     })
     .expect("Could not parse queries");
     Arc::new(language)

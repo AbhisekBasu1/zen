@@ -711,7 +711,9 @@ impl WorktreeStore {
                     ..
                 } => {
                     if upstream_client.is_via_collab() {
-                        Task::ready(Err(Arc::new(anyhow!("cannot create worktrees via collab"))))
+                        Task::ready(Err(Arc::new(anyhow!(
+                            "cannot create worktrees via remote project"
+                        ))))
                     } else {
                         let abs_path = RemotePathBuf::new(abs_path.to_string(), *path_style);
                         self.create_remote_worktree(upstream_client.clone(), abs_path, visible, cx)
@@ -1099,7 +1101,7 @@ impl WorktreeStore {
             worktrees: self.worktree_metadata_protos(cx),
         };
 
-        // collab has bad concurrency guarantees, so we send requests in serial.
+        // Some remote clients have weak concurrency guarantees, so we send requests in serial.
         let update_project = if downstream_client.is_via_collab() {
             Some(downstream_client.request(update))
         } else {

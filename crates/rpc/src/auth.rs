@@ -1,12 +1,19 @@
-use anyhow::{Context as _, Result};
+#[cfg(any(test, feature = "test-support"))]
+use anyhow::Context as _;
+use anyhow::Result;
 use base64::prelude::*;
 use rand::prelude::*;
+#[cfg(any(test, feature = "test-support"))]
 use rsa::pkcs1::{DecodeRsaPublicKey, EncodeRsaPublicKey};
+#[cfg(any(test, feature = "test-support"))]
 use rsa::traits::PaddingScheme;
+#[cfg(any(test, feature = "test-support"))]
 use rsa::{Oaep, Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
+#[cfg(any(test, feature = "test-support"))]
 use sha2::Sha256;
 use std::convert::TryFrom;
 
+#[cfg(any(test, feature = "test-support"))]
 fn oaep_sha256_padding() -> impl PaddingScheme {
     Oaep::new::<Sha256>()
 }
@@ -25,17 +32,31 @@ pub enum EncryptionFormat {
     V1,
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub struct PublicKey(RsaPublicKey);
 
+#[cfg(not(any(test, feature = "test-support")))]
+pub struct PublicKey(String);
+
+#[cfg(any(test, feature = "test-support"))]
 pub struct PrivateKey(RsaPrivateKey);
 
+#[cfg(not(any(test, feature = "test-support")))]
+pub struct PrivateKey;
+
 /// Generate a public and private key for asymmetric encryption.
+#[cfg(any(test, feature = "test-support"))]
 pub fn keypair() -> Result<(PublicKey, PrivateKey)> {
     let mut rng = RsaRngCompat::new();
     let bits = 2048;
     let private_key = RsaPrivateKey::new(&mut rng, bits)?;
     let public_key = RsaPublicKey::from(&private_key);
     Ok((PublicKey(public_key), PrivateKey(private_key)))
+}
+
+#[cfg(not(any(test, feature = "test-support")))]
+pub fn keypair() -> Result<(PublicKey, PrivateKey)> {
+    anyhow::bail!("RPC authentication is not available in this build")
 }
 
 /// Generate a random 64-character base64 string.
@@ -48,6 +69,7 @@ pub fn random_token() -> String {
     BASE64_URL_SAFE.encode(token_bytes)
 }
 
+#[cfg(any(test, feature = "test-support"))]
 impl PublicKey {
     /// Convert a string to a base64-encoded string that can only be decoded with the corresponding
     /// private key.
@@ -64,6 +86,14 @@ impl PublicKey {
     }
 }
 
+#[cfg(not(any(test, feature = "test-support")))]
+impl PublicKey {
+    pub fn encrypt_string(&self, _: &str, _: EncryptionFormat) -> Result<String> {
+        anyhow::bail!("RPC authentication is not available in this build")
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
 impl PrivateKey {
     /// Decrypt a base64-encoded string that was encrypted by the corresponding public key.
     pub fn decrypt_string(&self, encrypted_string: &str) -> Result<String> {
@@ -84,6 +114,14 @@ impl PrivateKey {
     }
 }
 
+#[cfg(not(any(test, feature = "test-support")))]
+impl PrivateKey {
+    pub fn decrypt_string(&self, _: &str) -> Result<String> {
+        anyhow::bail!("RPC authentication is not available in this build")
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
 impl TryFrom<PublicKey> for String {
     type Error = anyhow::Error;
     fn try_from(key: PublicKey) -> Result<Self> {
@@ -96,6 +134,16 @@ impl TryFrom<PublicKey> for String {
     }
 }
 
+#[cfg(not(any(test, feature = "test-support")))]
+impl TryFrom<PublicKey> for String {
+    type Error = anyhow::Error;
+
+    fn try_from(key: PublicKey) -> Result<Self> {
+        Ok(key.0)
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
 impl TryFrom<String> for PublicKey {
     type Error = anyhow::Error;
     fn try_from(value: String) -> Result<Self> {
@@ -107,15 +155,27 @@ impl TryFrom<String> for PublicKey {
     }
 }
 
+#[cfg(not(any(test, feature = "test-support")))]
+impl TryFrom<String> for PublicKey {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self> {
+        Ok(Self(value))
+    }
+}
+
 // TODO: remove once we rsa v0.10 is released.
+#[cfg(any(test, feature = "test-support"))]
 struct RsaRngCompat(rand::rngs::ThreadRng);
 
+#[cfg(any(test, feature = "test-support"))]
 impl RsaRngCompat {
     fn new() -> Self {
         Self(rand::rng())
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
 impl rsa::signature::rand_core::RngCore for RsaRngCompat {
     fn next_u32(&mut self) -> u32 {
         self.0.next_u32()
@@ -135,6 +195,7 @@ impl rsa::signature::rand_core::RngCore for RsaRngCompat {
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
 impl rsa::signature::rand_core::CryptoRng for RsaRngCompat {}
 
 #[cfg(test)]

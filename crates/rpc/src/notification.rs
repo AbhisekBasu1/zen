@@ -8,7 +8,7 @@ const ENTITY_ID: &str = "entity_id";
 
 /// A notification that can be stored, associated with a given recipient.
 ///
-/// This struct is stored in the collab database as JSON, so it shouldn't be
+/// This struct may be stored as JSON, so it shouldn't be
 /// changed in a backward-incompatible way. For example, when renaming a
 /// variant, add a serde alias for the old name.
 ///

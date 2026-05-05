@@ -177,7 +177,6 @@ const FILE_SUFFIXES_BY_ICON_KEY: &[(&str, &[&str])] = &[
             "jxl", "png", "psd", "qoi", "svg", "tiff", "webp",
         ],
     ),
-    ("ipynb", &["ipynb"]),
     ("java", &["java"]),
     ("javascript", &["cjs", "js", "mjs"]),
     ("json", &["json", "jsonc"]),
@@ -347,7 +346,6 @@ const FILE_ICONS: &[(&str, &str)] = &[
     ("heroku", "icons/file_icons/heroku.svg"),
     ("html", "icons/file_icons/html.svg"),
     ("image", "icons/file_icons/image.svg"),
-    ("ipynb", "icons/file_icons/jupyter.svg"),
     ("java", "icons/file_icons/java.svg"),
     ("javascript", "icons/file_icons/javascript.svg"),
     ("json", "icons/file_icons/code.svg"),
@@ -418,11 +416,11 @@ fn icon_keys_by_association(
 }
 
 /// The name of the default icon theme.
-pub const DEFAULT_ICON_THEME_NAME: &str = "Zed (Default)";
+pub const DEFAULT_ICON_THEME_NAME: &str = "Zen (Default)";
 
 static DEFAULT_ICON_THEME: LazyLock<Arc<IconTheme>> = LazyLock::new(|| {
     Arc::new(IconTheme {
-        id: "zed".into(),
+        id: "zen".into(),
         name: DEFAULT_ICON_THEME_NAME.into(),
         appearance: Appearance::Dark,
         directory_icons: DirectoryIcons {

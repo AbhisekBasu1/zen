@@ -7,11 +7,11 @@ use buffer_diff::{BufferDiff, BufferDiffSnapshot};
 use collections::HashMap;
 
 use gpui::{
-    Action, AppContext as _, Entity, EventEmitter, Focusable, Font, Pixels, Subscription,
-    WeakEntity, canvas,
+    Action, AppContext as _, Entity, EventEmitter, Focusable, Pixels, Subscription, WeakEntity,
+    canvas,
 };
 use itertools::Itertools;
-use language::{Buffer, Capability, HighlightedText};
+use language::{Buffer, Capability};
 use multi_buffer::{
     Anchor, AnchorRangeExt as _, BufferOffset, ExcerptRange, ExpandExcerptDirection, MultiBuffer,
     MultiBufferDiffHunk, MultiBufferPoint, MultiBufferSnapshot, PathKey,
@@ -31,17 +31,15 @@ use crate::{
     split_editor_view::{SplitEditorState, SplitEditorView},
 };
 use workspace::{
-    ActivatePaneLeft, ActivatePaneRight, Item, ToolbarItemLocation, Workspace,
+    ActivatePaneLeft, ActivatePaneRight, Item, Workspace,
     item::{ItemBufferKind, ItemEvent, SaveOptions, TabContentParams},
     searchable::{SearchEvent, SearchToken, SearchableItem, SearchableItemHandle},
 };
 
 use crate::{
     Autoscroll, Editor, EditorEvent, EditorSettings, RenderDiffHunkControlsFn, ToggleSoftWrap,
-    actions::{DisableBreakpoint, EditLogBreakpoint, EnableBreakpoint, ToggleBreakpoint},
     display_map::Companion,
 };
-use zed_actions::assistant::InlineAssist;
 
 pub(crate) fn patches_for_lhs_range(
     rhs_snapshot: &MultiBufferSnapshot,
@@ -503,10 +501,8 @@ impl SplittableEditor {
             let mut editor =
                 Editor::for_multibuffer(rhs_multibuffer.clone(), Some(project.clone()), window, cx);
             editor.set_expand_all_diff_hunks(cx);
-            editor.disable_runnables();
             editor.disable_inline_diagnostics();
             editor.disable_mouse_wheel_zoom();
-            editor.set_minimap_visibility(crate::MinimapVisibility::Disabled, window, cx);
             editor.start_temporary_diff_override();
             editor
         });
@@ -599,10 +595,8 @@ impl SplittableEditor {
             editor.set_delegate_open_excerpts(true);
             editor.set_show_vertical_scrollbar(false, cx);
             editor.disable_lsp_data();
-            editor.disable_runnables();
             editor.disable_diagnostics(cx);
             editor.disable_mouse_wheel_zoom();
-            editor.set_minimap_visibility(crate::MinimapVisibility::Disabled, window, cx);
             editor
         });
 
@@ -902,91 +896,6 @@ impl SplittableEditor {
                     self.unsplit(window, cx);
                 }
             }
-        }
-    }
-
-    fn intercept_toggle_breakpoint(
-        &mut self,
-        _: &ToggleBreakpoint,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        // Only block breakpoint actions when the left (lhs) editor has focus
-        if let Some(lhs) = &self.lhs {
-            if lhs.was_last_focused {
-                cx.stop_propagation();
-            } else {
-                cx.propagate();
-            }
-        } else {
-            cx.propagate();
-        }
-    }
-
-    fn intercept_enable_breakpoint(
-        &mut self,
-        _: &EnableBreakpoint,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        // Only block breakpoint actions when the left (lhs) editor has focus
-        if let Some(lhs) = &self.lhs {
-            if lhs.was_last_focused {
-                cx.stop_propagation();
-            } else {
-                cx.propagate();
-            }
-        } else {
-            cx.propagate();
-        }
-    }
-
-    fn intercept_disable_breakpoint(
-        &mut self,
-        _: &DisableBreakpoint,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        // Only block breakpoint actions when the left (lhs) editor has focus
-        if let Some(lhs) = &self.lhs {
-            if lhs.was_last_focused {
-                cx.stop_propagation();
-            } else {
-                cx.propagate();
-            }
-        } else {
-            cx.propagate();
-        }
-    }
-
-    fn intercept_edit_log_breakpoint(
-        &mut self,
-        _: &EditLogBreakpoint,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        // Only block breakpoint actions when the left (lhs) editor has focus
-        if let Some(lhs) = &self.lhs {
-            if lhs.was_last_focused {
-                cx.stop_propagation();
-            } else {
-                cx.propagate();
-            }
-        } else {
-            cx.propagate();
-        }
-    }
-
-    fn intercept_inline_assist(
-        &mut self,
-        _: &InlineAssist,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.lhs.is_some() {
-            cx.stop_propagation();
-        } else {
-            cx.propagate();
         }
     }
 
@@ -1835,14 +1744,6 @@ impl Item for SplittableEditor {
         Some(Box::new(handle.clone()))
     }
 
-    fn breadcrumb_location(&self, cx: &App) -> ToolbarItemLocation {
-        self.rhs_editor.read(cx).breadcrumb_location(cx)
-    }
-
-    fn breadcrumbs(&self, cx: &App) -> Option<(Vec<HighlightedText>, Option<Font>)> {
-        self.rhs_editor.read(cx).breadcrumbs(cx)
-    }
-
     fn pixel_position_of_cursor(&self, cx: &App) -> Option<gpui::Point<gpui::Pixels>> {
         self.focused_editor().read(cx).pixel_position_of_cursor(cx)
     }
@@ -2054,11 +1955,6 @@ impl Render for SplittableEditor {
             .on_action(cx.listener(Self::toggle_split))
             .on_action(cx.listener(Self::activate_pane_left))
             .on_action(cx.listener(Self::activate_pane_right))
-            .on_action(cx.listener(Self::intercept_toggle_breakpoint))
-            .on_action(cx.listener(Self::intercept_enable_breakpoint))
-            .on_action(cx.listener(Self::intercept_disable_breakpoint))
-            .on_action(cx.listener(Self::intercept_edit_log_breakpoint))
-            .on_action(cx.listener(Self::intercept_inline_assist))
             .capture_action(cx.listener(Self::toggle_soft_wrap))
             .size_full()
             .child(inner)

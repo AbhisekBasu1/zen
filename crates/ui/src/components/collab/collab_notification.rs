@@ -104,7 +104,7 @@ impl Component for CollabNotification {
                             Button::new("decline", "Dismiss"),
                         )
                         .child(Label::new("the user is sharing a project"))
-                        .child(Label::new("zed").color(Color::Muted)),
+                        .child(Label::new("zen").color(Color::Muted)),
                     )
                     .into_any_element(),
             ),
@@ -118,10 +118,10 @@ impl Component for CollabNotification {
                             Button::new("decline", "Decline"),
                         )
                         .child(Label::new(
-                            "a_very_long_username_that_might_overflow is sharing a project in Zed:",
+                            "a_very_long_username_that_might_overflow is sharing a project in Zen:",
                         ))
                         .child(
-                            Label::new("zed-cloud, zed, edit-prediction-bench, zed.dev")
+                            Label::new("docs, zen, markdown-workspace, example.dev")
                                 .color(Color::Muted),
                         ),
                     )
@@ -166,7 +166,7 @@ impl Component for CollabNotification {
                             Button::new("decline", "Decline"),
                         )
                         .child(Label::new(
-                            "maxbrunsfeld invited you to join the #zed channel",
+                            "maxbrunsfeld invited you to join the #zen channel",
                         )),
                     )
                     .into_any_element(),

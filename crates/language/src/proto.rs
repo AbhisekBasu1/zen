@@ -279,7 +279,6 @@ pub fn deserialize_anchor_range(range: proto::AnchorRange) -> Result<Range<Ancho
     )
 }
 
-// This behavior is currently copied in the collab database, for snapshotting channel notes
 /// Deserializes an [`crate::Operation`] from the RPC representation.
 pub fn deserialize_operation(message: proto::Operation) -> Result<crate::Operation> {
     Ok(

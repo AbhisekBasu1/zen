@@ -9,7 +9,7 @@ When introducing a new icon, it's important to ensure consistency with the exist
 2. For outlined icons, use a 1.2px stroke width.
 3. Not all icons are mathematically aligned; there's quite a bit of optical adjustment. However, try to keep the icon within an internal 12x12 bounding box as much as possible while ensuring proper visibility.
 4. Use the `filled` and `outlined` terminology when introducing icons that will have these two variants.
-5. Icons that are deeply contextual may have the feature context as their name prefix. For example, `ToolWeb`, `ReplPlay`, `DebugStepInto`, etc.
+5. Icons that are deeply contextual may have the feature context as their name prefix. For example, `ToolWeb`, `ReplPlay`, etc.
 6. Avoid complex layer structures in the icon SVG, like clipping masks and similar elements. When the shape becomes too complex, we recommend running the SVG through [SVGOMG](https://jakearchibald.github.io/svgomg/) to clean it up.
 
 ## Sourcing

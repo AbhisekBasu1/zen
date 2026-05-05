@@ -171,12 +171,7 @@ impl Workspace {
         struct PortalError;
 
         self.show_notification(NotificationId::unique::<PortalError>(), cx, |cx| {
-            cx.new(|cx| {
-                ErrorMessagePrompt::new(err.to_string(), cx).with_link_button(
-                    "See docs",
-                    "https://zed.dev/docs/linux#i-cant-open-any-files",
-                )
-            })
+            cx.new(|cx| ErrorMessagePrompt::new(err.to_string(), cx))
         });
     }
 
@@ -1247,6 +1242,155 @@ where
     ) {
         self.prompt_err(msg, window, cx, f).detach();
     }
+}
+
+pub mod status_toast {
+    use std::rc::Rc;
+
+    use gpui::{DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, IntoElement};
+    use ui::{Tooltip, prelude::*};
+    use zen_actions::toast;
+
+    use crate::{ToastAction, ToastView};
+
+    pub struct StatusToast {
+        icon: Option<Icon>,
+        text: SharedString,
+        action: Option<ToastAction>,
+        show_dismiss: bool,
+        auto_dismiss: bool,
+        this_handle: Entity<Self>,
+        focus_handle: FocusHandle,
+    }
+
+    impl StatusToast {
+        pub fn new(
+            text: impl Into<SharedString>,
+            cx: &mut App,
+            f: impl FnOnce(Self, &mut Context<Self>) -> Self,
+        ) -> Entity<Self> {
+            cx.new(|cx| {
+                let focus_handle = cx.focus_handle();
+
+                f(
+                    Self {
+                        text: text.into(),
+                        icon: None,
+                        action: None,
+                        show_dismiss: false,
+                        auto_dismiss: true,
+                        this_handle: cx.entity(),
+                        focus_handle,
+                    },
+                    cx,
+                )
+            })
+        }
+
+        pub fn icon(mut self, icon: Icon) -> Self {
+            self.icon = Some(icon);
+            self
+        }
+
+        pub fn auto_dismiss(mut self, auto_dismiss: bool) -> Self {
+            self.auto_dismiss = auto_dismiss;
+            self
+        }
+
+        pub fn action(
+            mut self,
+            label: impl Into<SharedString>,
+            f: impl Fn(&mut Window, &mut App) + 'static,
+        ) -> Self {
+            let this_handle = self.this_handle.clone();
+            self.action = Some(ToastAction::new(
+                label.into(),
+                Some(Rc::new(move |window, cx| {
+                    this_handle.update(cx, |_, cx| {
+                        cx.emit(DismissEvent);
+                    });
+                    f(window, cx);
+                })),
+            ));
+            self
+        }
+
+        pub fn dismiss_button(mut self, show: bool) -> Self {
+            self.show_dismiss = show;
+            self
+        }
+    }
+
+    impl Render for StatusToast {
+        fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let has_action_or_dismiss = self.action.is_some() || self.show_dismiss;
+
+            h_flex()
+                .id("status-toast")
+                .elevation_3(cx)
+                .gap_2()
+                .py_1p5()
+                .pl_2p5()
+                .map(|this| {
+                    if has_action_or_dismiss {
+                        this.pr_1p5()
+                    } else {
+                        this.pr_2p5()
+                    }
+                })
+                .flex_none()
+                .bg(cx.theme().colors().surface_background)
+                .shadow_lg()
+                .when_some(self.icon.clone(), |this, icon| this.child(icon))
+                .child(Label::new(self.text.clone()).color(Color::Default))
+                .when_some(self.action.as_ref(), |this, action| {
+                    this.child(
+                        Button::new(action.id.clone(), action.label.clone())
+                            .tooltip(Tooltip::for_action_title(
+                                action.label.clone(),
+                                &toast::RunAction,
+                            ))
+                            .color(Color::Muted)
+                            .when_some(action.on_click.clone(), |el, handler| {
+                                el.on_click(move |_click_event, window, cx| handler(window, cx))
+                            }),
+                    )
+                })
+                .when(self.show_dismiss, |this| {
+                    let handle = self.this_handle.clone();
+                    this.child(
+                        IconButton::new("dismiss", IconName::Close)
+                            .shape(ui::IconButtonShape::Square)
+                            .icon_size(IconSize::Small)
+                            .icon_color(Color::Muted)
+                            .tooltip(Tooltip::text("Dismiss"))
+                            .on_click(move |_click_event, _window, cx| {
+                                handle.update(cx, |_, cx| {
+                                    cx.emit(DismissEvent);
+                                });
+                            }),
+                    )
+                })
+        }
+    }
+
+    impl ToastView for StatusToast {
+        fn action(&self) -> Option<ToastAction> {
+            self.action.clone()
+        }
+
+        fn auto_dismiss(&self) -> bool {
+            self.auto_dismiss
+        }
+    }
+
+    impl Focusable for StatusToast {
+        fn focus_handle(&self, _cx: &App) -> FocusHandle {
+            self.focus_handle.clone()
+        }
+    }
+
+    impl EventEmitter<DismissEvent> for StatusToast {}
 }
 
 #[cfg(test)]
