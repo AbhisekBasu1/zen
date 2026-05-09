@@ -392,6 +392,8 @@ pub mod preview {
                 OpenPreview,
                 /// Opens a markdown preview in a split pane.
                 OpenPreviewToTheSide,
+                /// Toggles a markdown preview for the current file.
+                TogglePreview,
             ]
         );
     }

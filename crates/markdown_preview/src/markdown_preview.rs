@@ -3,7 +3,7 @@ use workspace::Workspace;
 
 pub mod markdown_preview_view;
 
-pub use zen_actions::preview::markdown::{OpenPreview, OpenPreviewToTheSide};
+pub use zen_actions::preview::markdown::{OpenPreview, OpenPreviewToTheSide, TogglePreview};
 
 actions!(
     markdown,

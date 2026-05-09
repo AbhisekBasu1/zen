@@ -4176,6 +4176,12 @@ fn default_render_tab_bar_buttons(
         Some(_) => (false, pane.items_len() > 1),
         None => (false, false),
     };
+    let can_toggle_markdown_preview = pane.active_item().is_some_and(|active_item| {
+        active_item
+            .tab_extra_context_menu_actions(window, cx)
+            .iter()
+            .any(|(_, action)| action.partial_eq(&zen_actions::preview::markdown::OpenPreview))
+    });
     // Ideally we would return a vec of elements here to pass directly to the [TabBar]'s
     // `end_slot`, but due to needing a view here that isn't possible.
     let right_children = h_flex()
@@ -4199,6 +4205,25 @@ fn default_render_tab_bar_buttons(
                     }))
                 }),
         )
+        .when(can_toggle_markdown_preview, |this| {
+            this.child(
+                IconButton::new("toggle_markdown_preview", IconName::FileMarkdown)
+                    .icon_size(IconSize::Small)
+                    .on_click(|_, window, cx| {
+                        window.dispatch_action(
+                            zen_actions::preview::markdown::TogglePreview.boxed_clone(),
+                            cx,
+                        );
+                    })
+                    .tooltip(|_, cx| {
+                        Tooltip::for_action(
+                            "Toggle Markdown Preview",
+                            &zen_actions::preview::markdown::TogglePreview,
+                            cx,
+                        )
+                    }),
+            )
+        })
         .child(
             PopoverMenu::new("pane-tab-bar-split")
                 .trigger_with_tooltip(

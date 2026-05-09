@@ -34,6 +34,7 @@ use workspace::{OpenOptions, OpenVisible, Pane, Workspace};
 
 use crate::{
     OpenFollowingPreview, OpenPreview, OpenPreviewToTheSide, ScrollDown, ScrollDownByItem,
+    TogglePreview,
 };
 use crate::{ScrollPageDown, ScrollPageUp, ScrollToBottom, ScrollToTop, ScrollUp, ScrollUpByItem};
 
@@ -86,27 +87,38 @@ impl MarkdownPreviewView {
 
         workspace.register_action(move |workspace, _: &OpenPreviewToTheSide, window, cx| {
             if let Some(editor) = Self::resolve_active_item_as_markdown_editor(workspace, cx) {
-                let view = Self::create_markdown_view(workspace, editor.clone(), window, cx);
-                let pane = workspace
-                    .find_pane_in_direction(workspace::SplitDirection::Right, cx)
-                    .unwrap_or_else(|| {
-                        workspace.split_pane(
-                            workspace.active_pane().clone(),
-                            workspace::SplitDirection::Right,
-                            window,
-                            cx,
-                        )
-                    });
-                pane.update(cx, |pane, cx| {
-                    if let Some(existing_view_idx) =
-                        Self::find_existing_independent_preview_item_idx(pane, &editor, cx)
-                    {
-                        pane.activate_item(existing_view_idx, true, true, window, cx);
-                    } else {
-                        pane.add_item(Box::new(view.clone()), false, false, None, window, cx)
-                    }
-                });
-                editor.focus_handle(cx).focus(window, cx);
+                Self::open_preview_to_the_side(workspace, editor, window, cx);
+                cx.notify();
+            }
+        });
+
+        workspace.register_action(move |workspace, _: &TogglePreview, window, cx| {
+            if let Some(preview) = workspace
+                .active_item(cx)
+                .and_then(|item| item.act_as::<MarkdownPreviewView>(cx))
+            {
+                let editor = preview
+                    .read(cx)
+                    .active_editor
+                    .as_ref()
+                    .map(|state| state.editor.clone());
+                Self::close_preview(workspace.active_pane().clone(), preview, window, cx);
+                if let Some(editor) = editor {
+                    editor.focus_handle(cx).focus(window, cx);
+                }
+                cx.notify();
+                return;
+            }
+
+            if let Some(editor) = Self::resolve_active_item_as_markdown_editor(workspace, cx) {
+                if let Some((pane, preview)) =
+                    Self::find_existing_independent_preview(workspace, &editor, cx)
+                {
+                    Self::close_preview(pane, preview, window, cx);
+                    editor.focus_handle(cx).focus(window, cx);
+                } else {
+                    Self::open_preview_to_the_side(workspace, editor, window, cx);
+                }
                 cx.notify();
             }
         });
@@ -137,21 +149,79 @@ impl MarkdownPreviewView {
         });
     }
 
+    fn open_preview_to_the_side(
+        workspace: &mut Workspace,
+        editor: Entity<Editor>,
+        window: &mut Window,
+        cx: &mut Context<Workspace>,
+    ) {
+        let view = Self::create_markdown_view(workspace, editor.clone(), window, cx);
+        let pane = workspace
+            .find_pane_in_direction(workspace::SplitDirection::Right, cx)
+            .unwrap_or_else(|| {
+                workspace.split_pane(
+                    workspace.active_pane().clone(),
+                    workspace::SplitDirection::Right,
+                    window,
+                    cx,
+                )
+            });
+        pane.update(cx, |pane, cx| {
+            if let Some(existing_view_idx) =
+                Self::find_existing_independent_preview_item_idx(pane, &editor, cx)
+            {
+                pane.activate_item(existing_view_idx, true, true, window, cx);
+            } else {
+                pane.add_item(Box::new(view.clone()), false, false, None, window, cx)
+            }
+        });
+        editor.focus_handle(cx).focus(window, cx);
+    }
+
+    fn close_preview(
+        pane: Entity<Pane>,
+        preview: Entity<MarkdownPreviewView>,
+        window: &mut Window,
+        cx: &mut Context<Workspace>,
+    ) {
+        let preview_item_id = preview.entity_id();
+        pane.update(cx, |pane, cx| {
+            pane.remove_item(preview_item_id, false, true, window, cx);
+        });
+    }
+
+    fn find_existing_independent_preview(
+        workspace: &Workspace,
+        editor: &Entity<Editor>,
+        cx: &App,
+    ) -> Option<(Entity<Pane>, Entity<MarkdownPreviewView>)> {
+        workspace.panes().iter().find_map(|pane| {
+            let preview = Self::find_existing_independent_preview_item(&pane.read(cx), editor, cx)?;
+            Some((pane.clone(), preview))
+        })
+    }
+
+    fn find_existing_independent_preview_item(
+        pane: &Pane,
+        editor: &Entity<Editor>,
+        cx: &App,
+    ) -> Option<Entity<MarkdownPreviewView>> {
+        pane.items_of_type::<MarkdownPreviewView>().find(|view| {
+            let view_read = view.read(cx);
+            view_read.mode == MarkdownPreviewMode::Default
+                && view_read
+                    .active_editor
+                    .as_ref()
+                    .is_some_and(|active_editor| active_editor.editor == *editor)
+        })
+    }
+
     fn find_existing_independent_preview_item_idx(
         pane: &Pane,
         editor: &Entity<Editor>,
         cx: &App,
     ) -> Option<usize> {
-        pane.items_of_type::<MarkdownPreviewView>()
-            .find(|view| {
-                let view_read = view.read(cx);
-                // Only look for independent (Default mode) previews, not Follow previews
-                view_read.mode == MarkdownPreviewMode::Default
-                    && view_read
-                        .active_editor
-                        .as_ref()
-                        .is_some_and(|active_editor| active_editor.editor == *editor)
-            })
+        Self::find_existing_independent_preview_item(pane, editor, cx)
             .and_then(|view| pane.index_for_item(&view))
     }
 
