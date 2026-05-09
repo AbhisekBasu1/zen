@@ -114,7 +114,6 @@ fn send_args_to_instance(args: &Args) -> anyhow::Result<()> {
             || path.starts_with("http://")
             || path.starts_with("https://")
             || path.starts_with("file://")
-            || path.starts_with("ssh://")
         {
             path.clone()
         } else {

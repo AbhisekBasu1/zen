@@ -11,7 +11,6 @@ use editor::Editor;
 use fs::{Fs, RealFs};
 use futures::StreamExt;
 use git::GitHostingProviderRegistry;
-use git_ui::clone::clone_and_open;
 use gpui::{App, AppContext, Application, AsyncApp, QuitMode, Task, UpdateGlobal as _};
 use gpui_platform;
 
@@ -21,15 +20,12 @@ use http_client::BlockedHttpClient;
 use language::LanguageRegistry;
 use parking_lot::Mutex;
 use project::trusted_worktrees;
-use project_panel::ProjectPanel;
 use settings::{Settings, SettingsStore};
 use std::{
-    cell::RefCell,
     env,
     io::{self, IsTerminal},
     path::Path,
     process,
-    rc::Rc,
     sync::{Arc, LazyLock, OnceLock},
     time::Instant,
 };
@@ -208,11 +204,6 @@ fn main() {
         return;
     }
 
-    if args.dump_all_actions {
-        dump_all_gpui_actions();
-        return;
-    }
-
     // Set custom data directory.
     if let Some(dir) = &args.user_data_dir {
         paths::set_custom_data_dir(dir);
@@ -339,13 +330,11 @@ fn main() {
         <dyn Fs>::set_global(fs.clone(), cx);
 
         GitHostingProviderRegistry::set_global(git_hosting_provider_registry, cx);
-        git_hosting_providers::init(cx);
 
         OpenListener::set_global(cx, open_listener.clone());
 
         let client = Client::production(cx);
-        let mut languages = LanguageRegistry::new(cx.background_executor().clone());
-        languages.set_language_server_download_dir(paths::languages_dir().clone());
+        let languages = LanguageRegistry::new(cx.background_executor().clone());
         let languages = Arc::new(languages);
         ui::on_new_scrollbars::<SettingsStore>(cx);
 
@@ -449,18 +438,11 @@ fn main() {
             .map(|chunk| [chunk[0].clone(), chunk[1].clone()])
             .collect();
 
-        #[cfg(target_os = "windows")]
-        let wsl = args.wsl;
-        #[cfg(not(target_os = "windows"))]
-        let wsl = None;
-
         if !urls.is_empty() || !diff_paths.is_empty() {
             open_listener.open(RawOpenRequest {
                 urls,
                 diff_paths,
-                wsl,
                 diff_all: diff_all_mode,
-                dev_container: args.dev_container,
             })
         }
 
@@ -521,41 +503,6 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                     );
                 }
             }
-            OpenRequestKind::GitClone { repo_url } => {
-                workspace::with_active_or_new_workspace(cx, |_workspace, window, cx| {
-                    if window.is_window_active() {
-                        clone_and_open(
-                            repo_url,
-                            cx.weak_entity(),
-                            window,
-                            cx,
-                            Arc::new(|workspace: &mut workspace::Workspace, window, cx| {
-                                workspace.focus_panel::<ProjectPanel>(window, cx);
-                            }),
-                        );
-                        return;
-                    }
-
-                    let subscription = Rc::new(RefCell::new(None));
-                    subscription.replace(Some(cx.observe_in(&cx.entity(), window, {
-                        let subscription = subscription.clone();
-                        let repo_url = repo_url;
-                        move |_, workspace_entity, window, cx| {
-                            if window.is_window_active() && subscription.take().is_some() {
-                                clone_and_open(
-                                    repo_url.clone(),
-                                    workspace_entity.downgrade(),
-                                    window,
-                                    cx,
-                                    Arc::new(|workspace: &mut workspace::Workspace, window, cx| {
-                                        workspace.focus_panel::<ProjectPanel>(window, cx);
-                                    }),
-                                );
-                            }
-                        }
-                    })));
-                });
-            }
             OpenRequestKind::GitCommit { sha } => {
                 cx.spawn(async move |cx| {
                     let paths_with_position =
@@ -607,7 +554,6 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
     }
 
     let mut task = None;
-    let dev_container = request.dev_container;
     if !request.open_paths.is_empty() || !request.diff_paths.is_empty() {
         let app_state = app_state.clone();
         task = Some(cx.spawn(async move |cx| {
@@ -618,10 +564,7 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                 &request.diff_paths,
                 request.diff_all,
                 app_state,
-                workspace::OpenOptions {
-                    open_in_dev_container: dev_container,
-                    ..Default::default()
-                },
+                workspace::OpenOptions::default(),
                 cx,
             )
             .await?;
@@ -777,7 +720,6 @@ async fn restorable_workspaces(
 fn init_paths() -> HashMap<io::ErrorKind, Vec<&'static Path>> {
     [
         paths::config_dir(),
-        paths::languages_dir(),
         paths::logs_dir(),
         paths::temp_dir(),
         paths::hang_traces_dir(),
@@ -811,15 +753,11 @@ struct Args {
     diff: Vec<String>,
     user_data_dir: Option<String>,
     #[cfg(target_os = "windows")]
-    wsl: Option<String>,
-    dev_container: bool,
-    #[cfg(target_os = "windows")]
     foreground: bool,
     #[cfg(target_os = "windows")]
     dock_action: Option<usize>,
     #[cfg(not(target_os = "windows"))]
     askpass: Option<String>,
-    dump_all_actions: bool,
     printenv: bool,
     #[cfg(target_os = "windows")]
     record_etw_trace: bool,
@@ -848,9 +786,8 @@ impl Args {
                 continue;
             }
 
-            #[cfg(target_os = "windows")]
-            if let Some(value) = arg.strip_prefix("--wsl=") {
-                parsed.wsl = Some(value.to_string());
+            if arg.strip_prefix("--wsl=").is_some() {
+                log::info!("ignoring --wsl in local-only Zen build");
                 continue;
             }
 
@@ -889,13 +826,13 @@ impl Args {
                     parsed.user_data_dir = args.next();
                 }
                 "--dev-container" => {
-                    parsed.dev_container = true;
+                    log::info!("ignoring --dev-container in local-only Zen build");
                 }
                 "--dev-server-token" => {
                     args.next();
                 }
                 "--dump-all-actions" => {
-                    parsed.dump_all_actions = true;
+                    log::info!("ignoring --dump-all-actions in local-only Zen build");
                 }
                 "--printenv" => {
                     parsed.printenv = true;
@@ -904,9 +841,9 @@ impl Args {
                 "--askpass" => {
                     parsed.askpass = args.next();
                 }
-                #[cfg(target_os = "windows")]
                 "--wsl" => {
-                    parsed.wsl = args.next();
+                    args.next();
+                    log::info!("ignoring --wsl in local-only Zen build");
                 }
                 #[cfg(target_os = "windows")]
                 "--foreground" => {
@@ -934,7 +871,7 @@ impl Args {
                 }
                 "--help" | "-h" => {
                     println!("Usage: zen [OPTIONS] [PATH_OR_URL]...");
-                    println!("Options: --diff OLD NEW  --user-data-dir DIR  --dev-container");
+                    println!("Options: --diff OLD NEW  --user-data-dir DIR");
                     process::exit(0);
                 }
                 _ => parsed.paths_or_urls.push(arg),
@@ -952,7 +889,6 @@ fn parse_url_arg(arg: &str, _cx: &App) -> String {
             if arg.starts_with("file://")
                 || arg.starts_with("zen://")
                 || arg.starts_with("zen-cli://")
-                || arg.starts_with("ssh://")
             {
                 arg.into()
             } else {
@@ -984,57 +920,6 @@ fn load_embedded_fonts(cx: &App) {
     cx.text_system()
         .add_fonts(embedded_fonts.into_inner())
         .unwrap();
-}
-
-fn dump_all_gpui_actions() {
-    #[derive(Debug, serde::Serialize)]
-    struct ActionDef {
-        name: &'static str,
-        human_name: String,
-        schema: Option<serde_json::Value>,
-        deprecated_aliases: &'static [&'static str],
-        deprecation_message: Option<&'static str>,
-        documentation: Option<&'static str>,
-    }
-    let mut generator = settings::KeymapFile::action_schema_generator();
-    let mut actions = gpui::generate_list_of_all_registered_actions()
-        .map(|action| {
-            let schema = (action.json_schema)(&mut generator)
-                .map(|s| serde_json::to_value(s).expect("Failed to serialize action schema"));
-            ActionDef {
-                name: action.name,
-                human_name: humanize_action_name(action.name),
-                schema,
-                deprecated_aliases: action.deprecated_aliases,
-                deprecation_message: action.deprecation_message,
-                documentation: action.documentation,
-            }
-        })
-        .collect::<Vec<ActionDef>>();
-
-    actions.sort_by_key(|a| a.name);
-
-    let schema_definitions = serde_json::to_value(generator.definitions())
-        .expect("Failed to serialize schema definitions");
-
-    let output = serde_json::json!({
-        "actions": actions,
-        "schema_definitions": schema_definitions,
-    });
-
-    io::Write::write(
-        &mut std::io::stdout(),
-        serde_json::to_string_pretty(&output).unwrap().as_bytes(),
-    )
-    .unwrap();
-}
-
-fn humanize_action_name(action_name: &str) -> String {
-    action_name
-        .split("::")
-        .map(|segment| segment.replace('_', " "))
-        .collect::<Vec<_>>()
-        .join(": ")
 }
 
 #[cfg(target_os = "windows")]

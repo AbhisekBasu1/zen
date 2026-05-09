@@ -47,8 +47,6 @@ use zen_actions::{OpenBrowser, OpenZenUrl, Quit};
 actions!(
     zen,
     [
-        /// Opens the element inspector for debugging UI.
-        DebugElements,
         /// Hides the application window.
         Hide,
         /// Hides all other application windows.
@@ -305,7 +303,7 @@ fn initialize_file_watcher(window: &mut Window, cx: &mut Context<Workspace>) {
     if let Err(e) = fs::fs_watcher::global(|_| {}) {
         let message = format!(
             "ReadDirectoryChangesW initialization failed: {}\n\n\
-            This may occur on network filesystems and WSL paths. \
+            This may occur on network filesystems. \
             For troubleshooting, see the Zen documentation.\n",
             e
         );

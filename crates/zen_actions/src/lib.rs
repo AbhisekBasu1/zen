@@ -350,37 +350,6 @@ pub mod outline {
     );
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct WslConnectionOptions {
-    pub distro_name: String,
-    pub user: Option<String>,
-}
-
-#[cfg(target_os = "windows")]
-pub mod wsl_actions {
-    use gpui::Action;
-    use schemars::JsonSchema;
-    use serde::Deserialize;
-
-    /// Opens a folder inside Wsl.
-    #[derive(PartialEq, Clone, Deserialize, Default, JsonSchema, Action)]
-    #[action(namespace = projects)]
-    #[serde(deny_unknown_fields)]
-    pub struct OpenFolderInWsl {
-        #[serde(default)]
-        pub create_new_window: bool,
-    }
-
-    /// Open a wsl distro.
-    #[derive(PartialEq, Clone, Deserialize, Default, JsonSchema, Action)]
-    #[action(namespace = projects)]
-    #[serde(deny_unknown_fields)]
-    pub struct OpenWsl {
-        #[serde(default)]
-        pub create_new_window: bool,
-    }
-}
-
 pub mod preview {
     pub mod markdown {
         use gpui::actions;

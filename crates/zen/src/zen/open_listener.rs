@@ -10,7 +10,6 @@ use git_ui::{file_diff_view::FileDiffView, multi_diff_view::MultiDiffView};
 use gpui::{App, AsyncApp, Global, WindowHandle};
 use std::path::Path;
 use std::sync::Arc;
-use ui::SharedString;
 use util::paths::PathWithPosition;
 use util::{ResultExt, percent_decode_uri_component};
 use workspace::item::ItemHandle;
@@ -41,7 +40,6 @@ pub struct OpenRequest {
     pub open_paths: Vec<String>,
     pub diff_paths: Vec<[String; 2]>,
     pub diff_all: bool,
-    pub dev_container: bool,
 }
 
 pub enum OpenRequestKind {
@@ -57,9 +55,6 @@ pub enum OpenRequestKind {
     Setting {
         /// `None` opens settings without navigating to a specific path.
         setting_path: Option<String>,
-    },
-    GitClone {
-        repo_url: SharedString,
     },
     GitCommit {
         sha: String,
@@ -85,10 +80,6 @@ impl std::fmt::Debug for OpenRequestKind {
                 .debug_struct("Setting")
                 .field("setting_path", setting_path)
                 .finish(),
-            Self::GitClone { repo_url } => f
-                .debug_struct("GitClone")
-                .field("repo_url", repo_url)
-                .finish(),
             Self::GitCommit { sha } => f.debug_struct("GitCommit").field("sha", sha).finish(),
         }
     }
@@ -100,10 +91,6 @@ impl OpenRequest {
 
         this.diff_paths = request.diff_paths;
         this.diff_all = request.diff_all;
-        this.dev_container = request.dev_container;
-        if let Some(wsl) = request.wsl {
-            log::info!("ignoring WSL open request in stripped build: {wsl}");
-        }
 
         for url in request.urls {
             if let Some(server_name) = url.strip_prefix("zen-cli://") {
@@ -132,8 +119,8 @@ impl OpenRequest {
                 this.kind = Some(OpenRequestKind::Setting {
                     setting_path: Some(setting_path.to_string()),
                 });
-            } else if let Some(clone_path) = url.strip_prefix("zen://git/clone") {
-                this.parse_git_clone_url(clone_path)?
+            } else if url.starts_with("zen://git/clone") {
+                log::info!("ignoring Git clone URL in local-only Zen build: {url}");
             } else if let Some(commit_path) = url.strip_prefix("zen://git/commit/") {
                 this.parse_git_commit_url(commit_path)?
             } else if url.starts_with("ssh://") {
@@ -150,26 +137,6 @@ impl OpenRequest {
         if let Some(decoded) = percent_decode_uri_component(file).log_err() {
             self.open_paths.push(decoded.into_owned())
         }
-    }
-
-    fn parse_git_clone_url(&mut self, clone_path: &str) -> Result<()> {
-        // Format: /?repo=<url> or ?repo=<url>
-        let clone_path = clone_path.strip_prefix('/').unwrap_or(clone_path);
-
-        let query = clone_path
-            .strip_prefix('?')
-            .context("invalid git clone url: missing query string")?;
-
-        let repo_url = url::form_urlencoded::parse(query.as_bytes())
-            .find_map(|(key, value)| (key == "repo").then_some(value))
-            .filter(|s| !s.is_empty())
-            .context("invalid git clone url: missing repo query parameter")?
-            .to_string()
-            .into();
-
-        self.kind = Some(OpenRequestKind::GitClone { repo_url });
-
-        Ok(())
     }
 
     fn parse_git_commit_url(&mut self, commit_path: &str) -> Result<()> {
@@ -203,8 +170,6 @@ pub struct RawOpenRequest {
     pub urls: Vec<String>,
     pub diff_paths: Vec<[String; 2]>,
     pub diff_all: bool,
-    pub dev_container: bool,
-    pub wsl: Option<String>,
 }
 
 impl Global for OpenListener {}
@@ -343,11 +308,11 @@ pub async fn handle_cli_connection(
                 diff_paths,
                 diff_all,
                 wait,
-                wsl,
+                wsl: _,
                 mut open_behavior,
                 env,
                 user_data_dir: _,
-                dev_container,
+                dev_container: _,
             } => {
                 if !urls.is_empty() {
                     cx.update(|cx| {
@@ -356,8 +321,6 @@ pub async fn handle_cli_connection(
                                 urls,
                                 diff_paths,
                                 diff_all,
-                                dev_container,
-                                wsl,
                             },
                             cx,
                         ) {
@@ -408,7 +371,6 @@ pub async fn handle_cli_connection(
                     open_behavior,
                     responses.as_ref(),
                     wait,
-                    dev_container,
                     app_state.clone(),
                     env,
                     cx,
@@ -530,7 +492,6 @@ async fn open_workspaces(
     open_behavior: cli::OpenBehavior,
     responses: &dyn CliResponseSink,
     wait: bool,
-    dev_container: bool,
     app_state: Arc<AppState>,
     env: Option<collections::HashMap<String, String>>,
     cx: &mut AsyncApp,
@@ -597,7 +558,6 @@ async fn open_workspaces(
             requesting_window: replace_window,
             wait,
             env: env.clone(),
-            open_in_dev_container: dev_container,
             ..Default::default()
         };
 
@@ -800,7 +760,6 @@ mod tests {
     use futures::poll;
     use gpui::{AppContext as _, TestAppContext};
     use language::LineEnding;
-    use project::remote::SshConnectionOptions;
     use rope::Rope;
     use serde_json::json;
     use std::{sync::Arc, task::Poll};
@@ -826,7 +785,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn test_parse_ssh_url(cx: &mut TestAppContext) {
+    fn test_parse_ssh_url_is_ignored(cx: &mut TestAppContext) {
         let _app_state = init_test(cx);
         let request = cx.update(|cx| {
             OpenRequest::parse(
@@ -838,21 +797,8 @@ mod tests {
             )
             .unwrap()
         });
-        assert_eq!(
-            request.remote_connection.unwrap(),
-            RemoteConnectionOptions::Ssh(SshConnectionOptions {
-                host: "localhost".into(),
-                username: Some("me".into()),
-                port: None,
-                password: None,
-                args: None,
-                port_forwards: None,
-                nickname: None,
-                upload_binary_over_ssh: false,
-                connection_timeout: None,
-            })
-        );
-        assert_eq!(request.open_paths, vec!["/"]);
+        assert!(request.open_paths.is_empty());
+        assert!(request.kind.is_none());
     }
 
     #[gpui::test]
@@ -1271,7 +1217,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn test_parse_git_clone_url(cx: &mut TestAppContext) {
+    fn test_git_clone_url_is_ignored(cx: &mut TestAppContext) {
         let _app_state = init_test(cx);
 
         let request = cx.update(|cx| {
@@ -1287,16 +1233,11 @@ mod tests {
             .unwrap()
         });
 
-        match request.kind {
-            Some(OpenRequestKind::GitClone { repo_url }) => {
-                assert_eq!(repo_url, "https://github.com/example/project.git");
-            }
-            _ => panic!("Expected GitClone kind"),
-        }
+        assert!(request.kind.is_none());
     }
 
     #[gpui::test]
-    fn test_parse_git_clone_url_without_slash(cx: &mut TestAppContext) {
+    fn test_git_clone_url_without_slash_is_ignored(cx: &mut TestAppContext) {
         let _app_state = init_test(cx);
 
         let request = cx.update(|cx| {
@@ -1312,16 +1253,11 @@ mod tests {
             .unwrap()
         });
 
-        match request.kind {
-            Some(OpenRequestKind::GitClone { repo_url }) => {
-                assert_eq!(repo_url, "https://github.com/example/project.git");
-            }
-            _ => panic!("Expected GitClone kind"),
-        }
+        assert!(request.kind.is_none());
     }
 
     #[gpui::test]
-    fn test_parse_git_clone_url_with_encoding(cx: &mut TestAppContext) {
+    fn test_git_clone_url_with_encoding_is_ignored(cx: &mut TestAppContext) {
         let _app_state = init_test(cx);
 
         let request = cx.update(|cx| {
@@ -1338,12 +1274,7 @@ mod tests {
             .unwrap()
         });
 
-        match request.kind {
-            Some(OpenRequestKind::GitClone { repo_url }) => {
-                assert_eq!(repo_url, "https://github.com/example/project.git");
-            }
-            _ => panic!("Expected GitClone kind"),
-        }
+        assert!(request.kind.is_none());
     }
 
     #[gpui::test]
@@ -1503,125 +1434,6 @@ mod tests {
             .update(cx, |workspace, _, cx| {
                 let items = workspace.workspace().read(cx).items(cx).collect::<Vec<_>>();
                 assert_eq!(items.len(), 1, "Other window should still have 1 item");
-            })
-            .unwrap();
-    }
-
-    #[gpui::test]
-    async fn test_dev_container_flag_opens_modal(cx: &mut TestAppContext) {
-        let app_state = init_test(cx);
-        cx.update(|cx| recent_projects::init(cx));
-
-        app_state
-            .fs
-            .as_fake()
-            .insert_tree(
-                path!("/project"),
-                json!({
-                    ".devcontainer": {
-                        "devcontainer.json": "{}"
-                    },
-                    "src": {
-                        "main.rs": "fn main() {}"
-                    }
-                }),
-            )
-            .await;
-
-        let errored = cx
-            .spawn({
-                let app_state = app_state.clone();
-                |mut cx| async move {
-                    let response_sink = DiscardResponseSink;
-                    open_local_workspace(
-                        vec![path!("/project").to_owned()],
-                        vec![],
-                        false,
-                        workspace::OpenOptions {
-                            open_in_dev_container: true,
-                            ..Default::default()
-                        },
-                        &response_sink,
-                        &app_state,
-                        &mut cx,
-                    )
-                    .await
-                }
-            })
-            .await;
-
-        assert!(!errored);
-
-        let multi_workspace = cx.update(|cx| cx.windows()[0].downcast::<MultiWorkspace>().unwrap());
-        multi_workspace
-            .update(cx, |multi_workspace, _, cx| {
-                let flag = multi_workspace.workspace().read(cx).open_in_dev_container();
-                assert!(
-                    !flag,
-                    "open_in_dev_container flag should be consumed by suggest_on_worktree_updated"
-                );
-            })
-            .unwrap();
-    }
-
-    #[gpui::test]
-    async fn test_dev_container_flag_cleared_without_config(cx: &mut TestAppContext) {
-        let app_state = init_test(cx);
-        cx.update(|cx| recent_projects::init(cx));
-
-        app_state
-            .fs
-            .as_fake()
-            .insert_tree(
-                path!("/project"),
-                json!({
-                    "src": {
-                        "main.rs": "fn main() {}"
-                    }
-                }),
-            )
-            .await;
-
-        let errored = cx
-            .spawn({
-                let app_state = app_state.clone();
-                |mut cx| async move {
-                    let response_sink = DiscardResponseSink;
-                    open_local_workspace(
-                        vec![path!("/project").to_owned()],
-                        vec![],
-                        false,
-                        workspace::OpenOptions {
-                            open_in_dev_container: true,
-                            ..Default::default()
-                        },
-                        &response_sink,
-                        &app_state,
-                        &mut cx,
-                    )
-                    .await
-                }
-            })
-            .await;
-
-        assert!(!errored);
-
-        // Let any pending worktree scan events and updates settle.
-        cx.run_until_parked();
-
-        // With no .devcontainer config, the flag should be cleared once the
-        // worktree scan completes, rather than persisting on the workspace.
-        let multi_workspace = cx.update(|cx| cx.windows()[0].downcast::<MultiWorkspace>().unwrap());
-        multi_workspace
-            .update(cx, |multi_workspace, _, cx| {
-                let flag = multi_workspace
-                    .workspace()
-                    .read(cx)
-                    .open_in_dev_container();
-                assert!(
-                    !flag,
-                    "open_in_dev_container flag should be cleared when no devcontainer config exists"
-                );
             })
             .unwrap();
     }
