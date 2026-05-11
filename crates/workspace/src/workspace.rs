@@ -1904,8 +1904,9 @@ impl Workspace {
             }
 
             window
-                .update(cx, |_, _window, cx| {
+                .update(cx, |_, window, cx| {
                     workspace.update(cx, |this: &mut Workspace, cx| {
+                        this.serialize_workspace(window, cx);
                         this.update_history(cx);
                     });
                 })
@@ -3507,6 +3508,12 @@ impl Workspace {
                     .ok();
                 }
             }
+
+            this.update_in(cx, |workspace, window, cx| {
+                workspace.serialize_workspace(window, cx);
+                workspace.update_history(cx);
+            })
+            .log_err();
 
             results
         })

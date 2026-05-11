@@ -3,6 +3,7 @@ mod undo;
 mod utils;
 
 use anyhow::{Context as _, Result};
+use chrono::{DateTime, Utc};
 use client::{ErrorCode, ErrorExt};
 use collections::{BTreeSet, HashMap, hash_map};
 use editor::{
@@ -68,8 +69,9 @@ use util::{
     rel_path::{RelPath, RelPathBuf},
 };
 use workspace::{
-    DraggedSelection, OpenMode, OpenOptions, OpenVisible, PreviewTabsSettings, SelectedEntry,
-    SplitDirection, Workspace,
+    DraggedSelection, OpenMode, OpenOptions, OpenVisible, PathList, PreviewTabsSettings,
+    SelectedEntry, SerializedWorkspaceLocation, SplitDirection, Workspace, WorkspaceDb,
+    WorkspaceId,
     dock::{DockPosition, Panel, PanelEvent},
     notifications::{
         DetachAndPromptErr, NotifyResultExt, NotifyTaskExt, status_toast::StatusToast,
@@ -88,6 +90,13 @@ use crate::{
 
 const PROJECT_PANEL_KEY: &str = "ProjectPanel";
 const NEW_ENTRY_ID: ProjectEntryId = ProjectEntryId::MAX;
+
+type RecentWorkspace = (
+    WorkspaceId,
+    SerializedWorkspaceLocation,
+    PathList,
+    DateTime<Utc>,
+);
 
 struct VisibleEntriesForWorktree {
     worktree_id: WorktreeId,
@@ -161,6 +170,7 @@ pub struct ProjectPanel {
     update_visible_entries_task: UpdateVisibleEntriesTask,
     undo_manager: UndoManager,
     state: State,
+    recent_workspaces: Option<Vec<RecentWorkspace>>,
 }
 
 struct UpdateVisibleEntriesTask {
@@ -784,10 +794,11 @@ impl ProjectPanel {
 
             let scroll_handle = UniformListScrollHandle::new();
             let weak_project_panel = cx.weak_entity();
+            let fs = workspace.app_state().fs.clone();
             let mut this = Self {
                 project: project.clone(),
                 hover_scroll_task: None,
-                fs: workspace.app_state().fs.clone(),
+                fs: fs.clone(),
                 focus_handle,
                 rendered_entries_len: 0,
                 folded_directory_drag_target: None,
@@ -819,8 +830,25 @@ impl ProjectPanel {
                 },
                 update_visible_entries_task: Default::default(),
                 undo_manager: UndoManager::new(workspace.weak_handle(), weak_project_panel, &cx),
+                recent_workspaces: None,
             };
             this.update_visible_entries(None, false, false, window, cx);
+
+            let db = WorkspaceDb::global(cx);
+            cx.spawn_in(window, async move |this: WeakEntity<Self>, cx| {
+                let recent_workspaces = db
+                    .recent_project_workspaces(fs.as_ref())
+                    .await
+                    .log_err()
+                    .unwrap_or_default();
+
+                this.update(cx, |this, cx| {
+                    this.recent_workspaces = Some(recent_workspaces);
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
 
             this
         });
@@ -921,6 +949,26 @@ impl ProjectPanel {
         workspace.update_in(&mut cx, |workspace, window, cx| {
             ProjectPanel::new(workspace, window, cx)
         })
+    }
+
+    fn render_recent_project_button(&self, index: usize, paths: &PathList) -> impl IntoElement {
+        let paths_to_open = paths.paths().to_vec();
+        let workspace = self.workspace.clone();
+
+        Button::new(("recent-project", index as u64), recent_project_name(paths))
+            .full_width()
+            .truncate(true)
+            .start_icon(Icon::new(IconName::Folder))
+            .on_click(move |_, window, cx| {
+                let paths_to_open = paths_to_open.clone();
+                workspace
+                    .update(cx, |workspace, cx| {
+                        workspace
+                            .open_workspace_for_paths(OpenMode::Activate, paths_to_open, window, cx)
+                            .detach_and_log_err(cx);
+                    })
+                    .log_err();
+            })
     }
 
     fn update_diagnostics(&mut self, cx: &mut Context<Self>) {
@@ -6465,6 +6513,24 @@ fn item_width_estimate(depth: usize, item_text_chars: usize, is_symlink: bool) -
     item_width
 }
 
+fn recent_project_name(paths: &PathList) -> String {
+    let joined = paths
+        .paths()
+        .iter()
+        .filter_map(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    if joined.is_empty() {
+        "Untitled".to_string()
+    } else {
+        joined
+    }
+}
+
 impl Render for ProjectPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let has_worktree = !self.state.visible_entries.is_empty();
@@ -7042,6 +7108,18 @@ impl Render for ProjectPanel {
                 }))
         } else {
             let focus_handle = self.focus_handle(cx);
+            let recent_projects = self
+                .recent_workspaces
+                .as_ref()
+                .into_iter()
+                .flatten()
+                .filter(|(_, location, paths, _)| {
+                    matches!(location, SerializedWorkspaceLocation::Local) && !paths.is_empty()
+                })
+                .take(5)
+                .enumerate()
+                .map(|(index, (_, _, paths, _))| self.render_recent_project_button(index, paths))
+                .collect::<Vec<_>>();
 
             v_flex()
                 .id("empty-project_panel")
@@ -7049,8 +7127,27 @@ impl Render for ProjectPanel {
                 .size_full()
                 .items_center()
                 .justify_center()
-                .gap_1()
+                .gap_2()
                 .track_focus(&self.focus_handle(cx))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap_1()
+                        .child(
+                            Label::new("Recent Projects")
+                                .size(LabelSize::XSmall)
+                                .color(Color::Muted),
+                        )
+                        .when(recent_projects.is_empty(), |this| {
+                            this.child(
+                                Label::new("No recent projects yet")
+                                    .size(LabelSize::XSmall)
+                                    .color(Color::Muted),
+                            )
+                        })
+                        .children(recent_projects),
+                )
+                .child(Divider::horizontal())
                 .child(
                     Button::new("open_project", "Open Project")
                         .full_width()

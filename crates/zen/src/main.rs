@@ -677,9 +677,12 @@ pub(crate) async fn restore_or_create_workspace(
                         let restore_on_startup =
                             WorkspaceSettings::get_global(cx).restore_on_startup;
                         match restore_on_startup {
-                            workspace::RestoreOnStartupBehavior::Launchpad => {}
-                            _ => {
+                            workspace::RestoreOnStartupBehavior::EmptyTab => {
                                 Editor::new_file(workspace, &Default::default(), window, cx);
+                            }
+                            _ => {
+                                // If there was nothing to restore, keep the empty workspace so
+                                // the welcome page can show recent projects instead of a blank tab.
                             }
                         }
                     },
@@ -696,9 +699,12 @@ pub(crate) async fn restore_or_create_workspace(
                 |workspace, window, cx| {
                     let restore_on_startup = WorkspaceSettings::get_global(cx).restore_on_startup;
                     match restore_on_startup {
-                        workspace::RestoreOnStartupBehavior::Launchpad => {}
-                        _ => {
+                        workspace::RestoreOnStartupBehavior::EmptyTab => {
                             Editor::new_file(workspace, &Default::default(), window, cx);
+                        }
+                        _ => {
+                            // If there was nothing to restore, keep the empty workspace so
+                            // the welcome page can show recent projects instead of a blank tab.
                         }
                     }
                 },

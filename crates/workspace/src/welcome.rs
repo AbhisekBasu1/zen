@@ -317,9 +317,20 @@ impl WelcomePage {
         &self,
         recent_projects: Vec<impl IntoElement>,
     ) -> impl IntoElement {
+        let is_empty = recent_projects.is_empty();
+
         v_flex()
             .w_full()
             .child(SectionHeader::new("Recent Projects"))
+            .when(is_empty, |this| {
+                this.child(
+                    h_flex().px_1().child(
+                        Label::new("No recent projects yet")
+                            .color(Color::Muted)
+                            .size(LabelSize::XSmall),
+                    ),
+                )
+            })
             .children(recent_projects)
     }
 
@@ -366,9 +377,7 @@ impl Render for WelcomePage {
             })
             .collect::<Vec<_>>();
 
-        let showing_recent_projects =
-            self.fallback_to_recent_projects && !recent_projects.is_empty();
-        let second_section = if showing_recent_projects {
+        let second_section = if self.fallback_to_recent_projects {
             self.render_recent_project_section(recent_projects)
                 .into_any_element()
         } else {
