@@ -32,3 +32,17 @@ Zen should make this workflow calm and legible:
 - Keep code nearby when the document refers to implementation details.
 
 Zen should not hide these files behind a chat interface. The source of truth is still Markdown in the repository.
+
+## Human authorship
+
+Zen can show which text was typed by a human in Zen after authorship tracking was enabled.
+
+Use the human-authorship button in the editor toolbar to highlight human-authored ranges. Keyboard and IME input are tracked as human-authored. Paste, programmatic edits, formatter-style edits, and external file changes are treated as agent-authored unless the user manually marks a selection otherwise.
+
+The editor context menu includes:
+
+- `Paste as Agent`
+- `Mark Selection as Human`
+- `Mark Selection as Agent`
+
+Authorship metadata is stored locally in Zen's data directory, not in the repository. It is saved after edits, on file save, and when an editor is closed. Existing text from before tracking was enabled cannot be classified retroactively.

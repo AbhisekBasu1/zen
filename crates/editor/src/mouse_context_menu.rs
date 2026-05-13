@@ -9,6 +9,7 @@ use crate::{
 use gpui::prelude::FluentBuilder;
 use gpui::{Context, DismissEvent, Entity, Focusable as _, Pixels, Point, Subscription, Window};
 use std::{ops::Range, path::Path};
+use zen_actions::editor::{MarkSelectionAsAgent, MarkSelectionAsHuman, PasteAsAgent};
 use zen_actions::preview::markdown::OpenPreview as OpenMarkdownPreview;
 
 #[derive(Debug)]
@@ -194,6 +195,11 @@ pub fn deploy_context_menu(
 
         let focus = window.focused(cx);
         let has_reveal_target = editor.target_file(cx).is_some();
+        let has_selection = editor
+            .selections
+            .disjoint_anchors()
+            .iter()
+            .any(|selection| selection.start != selection.end);
         let is_markdown = editor
             .buffer()
             .read(cx)
@@ -249,6 +255,18 @@ pub fn deploy_context_menu(
                 .action("Copy", Box::new(Copy))
                 .action("Copy and Trim", Box::new(CopyAndTrim))
                 .action("Paste", Box::new(Paste))
+                .action("Paste as Agent", Box::new(PasteAsAgent))
+                .separator()
+                .action_disabled_when(
+                    !has_selection,
+                    "Mark Selection as Human",
+                    Box::new(MarkSelectionAsHuman),
+                )
+                .action_disabled_when(
+                    !has_selection,
+                    "Mark Selection as Agent",
+                    Box::new(MarkSelectionAsAgent),
+                )
                 .separator()
                 .action_disabled_when(
                     !has_reveal_target,

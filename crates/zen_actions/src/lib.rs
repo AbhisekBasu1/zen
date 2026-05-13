@@ -139,12 +139,20 @@ pub mod editor {
     actions!(
         editor,
         [
+            /// Marks the selected text as agent-authored.
+            MarkSelectionAsAgent,
+            /// Marks the selected text as human-authored.
+            MarkSelectionAsHuman,
             /// Moves cursor up.
             MoveUp,
             /// Moves cursor down.
             MoveDown,
+            /// Pastes clipboard contents as agent-authored text.
+            PasteAsAgent,
             /// Reveals the current file in the system file manager.
             RevealInFileManager,
+            /// Toggles human authorship highlights in the active editor.
+            ToggleAuthorship,
         ]
     );
 }

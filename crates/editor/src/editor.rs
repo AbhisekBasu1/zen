@@ -12,6 +12,7 @@
 //!
 //! If you're looking to improve Vim mode, you should check out Vim crate that wraps Editor and overrides its behavior.
 pub mod actions;
+mod authorship;
 pub mod blink_manager;
 mod bracket_colorization;
 mod clangd_ext;
@@ -108,11 +109,12 @@ use hover_popover::{HoverState, hide_hover};
 use indent_guides::ActiveIndentGuidesState;
 use itertools::{Either, Itertools};
 use language::{
-    AutoindentMode, BlockCommentConfig, BracketMatch, BracketPair, Buffer, BufferRow,
-    BufferSnapshot, Capability, CharClassifier, CharKind, CharScopeContext, CodeLabel, CursorShape,
-    DiagnosticEntryRef, DiffOptions, IndentKind, IndentSize, Language, LanguageAwareStyling,
-    LanguageName, LanguageRegistry, LanguageScope, LocalFile, OffsetRangeExt, OutlineItem, Point,
-    Selection, SelectionGoal, TextObject, TransactionId, TreeSitterOptions, WordsQuery,
+    AuthorshipSource, AutoindentMode, BlockCommentConfig, BracketMatch, BracketPair, Buffer,
+    BufferRow, BufferSnapshot, Capability, CharClassifier, CharKind, CharScopeContext, CodeLabel,
+    CursorShape, DiagnosticEntryRef, DiffOptions, IndentKind, IndentSize, Language,
+    LanguageAwareStyling, LanguageName, LanguageRegistry, LanguageScope, LocalFile, OffsetRangeExt,
+    OutlineItem, Point, Selection, SelectionGoal, TextObject, TransactionId, TreeSitterOptions,
+    WordsQuery,
     language_settings::{
         self, LanguageSettings, LspInsertMode, RewrapBehavior, WordsCompletionMode,
     },
@@ -1076,6 +1078,8 @@ pub struct Editor {
     _scroll_cursor_center_top_bottom_task: Task<()>,
     serialize_selections: Task<()>,
     serialize_folds: Task<()>,
+    serialize_authorship: Task<()>,
+    show_authorship: bool,
     mouse_cursor_hidden: bool,
     hide_mouse_mode: HideMouseMode,
     pub change_list: ChangeList,
@@ -2238,6 +2242,8 @@ impl Editor {
             toggle_fold_multiple_buffers: Task::ready(()),
             serialize_selections: Task::ready(()),
             serialize_folds: Task::ready(()),
+            serialize_authorship: Task::ready(()),
+            show_authorship: false,
             text_style_refinement: None,
             load_diff_task: load_uncommitted_diff,
             temporary_diff_override: false,
@@ -2266,6 +2272,7 @@ impl Editor {
 
         editor.applicable_language_settings = editor.fetch_applicable_language_settings(cx);
         editor.accent_data = editor.fetch_accent_data(cx);
+        editor.restore_authorship(cx);
 
         editor._subscriptions.extend(project_subscriptions);
 
@@ -3244,6 +3251,173 @@ impl Editor {
         });
     }
 
+    fn restore_authorship(&mut self, cx: &mut Context<Self>) {
+        let Some((buffer, path)) = self.singleton_authorship_buffer_and_path(cx) else {
+            return;
+        };
+
+        let Some(persisted) = authorship::load(&path).log_err().flatten() else {
+            return;
+        };
+
+        buffer.update(cx, |buffer, _| {
+            buffer.restore_human_authorship_ranges(
+                persisted.previous_text(),
+                persisted.human_ranges(),
+            );
+        });
+        self.persist_authorship(cx);
+    }
+
+    fn persist_authorship(&mut self, cx: &mut Context<Self>) {
+        let Some((path, text, human_ranges)) = self.authorship_payload(cx) else {
+            return;
+        };
+
+        let background_executor = cx.background_executor().clone();
+        self.serialize_authorship = cx.background_spawn(async move {
+            background_executor.timer(SERIALIZATION_THROTTLE_TIME).await;
+            authorship::save(&path, text, human_ranges).log_err();
+        });
+    }
+
+    pub(crate) fn persist_authorship_now(&self, cx: &App) {
+        let Some((path, text, human_ranges)) = self.authorship_payload(cx) else {
+            return;
+        };
+
+        authorship::save(&path, text, human_ranges).log_err();
+    }
+
+    fn authorship_payload(&self, cx: &App) -> Option<(PathBuf, String, Vec<Range<usize>>)> {
+        let (buffer, path) = self.singleton_authorship_buffer_and_path(cx)?;
+        let buffer = buffer.read(cx);
+        let text = buffer.text_for_range(0..buffer.len()).collect::<String>();
+        Some((path, text, buffer.human_authorship_ranges_as_offsets()))
+    }
+
+    fn singleton_authorship_buffer_and_path(&self, cx: &App) -> Option<(Entity<Buffer>, PathBuf)> {
+        let buffer = self.buffer.read(cx).as_singleton()?.clone();
+        let path = {
+            let buffer = buffer.read(cx);
+            let file = project::File::from_dyn(buffer.file())?;
+            if file.is_private {
+                return None;
+            }
+            file.abs_path(cx)
+        };
+        Some((buffer, path))
+    }
+
+    pub fn authorship_visible(&self) -> bool {
+        self.show_authorship
+    }
+
+    pub fn toggle_authorship(
+        &mut self,
+        _: &zen_actions::editor::ToggleAuthorship,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_authorship = !self.show_authorship;
+        self.refresh_authorship_highlights(cx);
+        cx.notify();
+    }
+
+    fn refresh_authorship_highlights(&mut self, cx: &mut Context<Self>) {
+        if !self.show_authorship {
+            self.clear_highlights(HighlightKey::AuthorshipHuman, cx);
+            return;
+        }
+
+        let snapshot = self.buffer.read(cx).snapshot(cx);
+        let ranges = self
+            .buffer
+            .read(cx)
+            .all_buffers()
+            .into_iter()
+            .flat_map(|buffer| {
+                let buffer = buffer.read(cx);
+                buffer
+                    .human_authorship_ranges()
+                    .iter()
+                    .filter_map(|range| snapshot.buffer_anchor_range_to_anchor_range(range.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        self.highlight_text(
+            HighlightKey::AuthorshipHuman,
+            ranges,
+            HighlightStyle {
+                background_color: Some(cx.theme().status().created_background),
+                underline: Some(UnderlineStyle {
+                    thickness: px(1.),
+                    color: Some(cx.theme().status().created),
+                    wavy: false,
+                }),
+                ..Default::default()
+            },
+            cx,
+        );
+    }
+
+    pub fn mark_selection_as_human(
+        &mut self,
+        _: &zen_actions::editor::MarkSelectionAsHuman,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.mark_selection_authorship(true, cx);
+    }
+
+    pub fn mark_selection_as_agent(
+        &mut self,
+        _: &zen_actions::editor::MarkSelectionAsAgent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.mark_selection_authorship(false, cx);
+    }
+
+    fn mark_selection_authorship(&mut self, human: bool, cx: &mut Context<Self>) {
+        let snapshot = self.buffer.read(cx).snapshot(cx);
+        let selections = self.selections.disjoint_anchors_arc();
+        let mut ranges_by_buffer: HashMap<BufferId, Vec<Range<text::Anchor>>> = HashMap::default();
+
+        for selection in selections.iter() {
+            if selection.start == selection.end {
+                continue;
+            }
+            if let Some((buffer_snapshot, range)) =
+                snapshot.anchor_range_to_buffer_anchor_range(selection.range())
+            {
+                ranges_by_buffer
+                    .entry(buffer_snapshot.remote_id())
+                    .or_default()
+                    .push(range);
+            }
+        }
+
+        if ranges_by_buffer.is_empty() {
+            return;
+        }
+
+        let buffers = self.buffer.read(cx).all_buffers();
+        for buffer in buffers {
+            let buffer_id = buffer.read(cx).remote_id();
+            if let Some(ranges) = ranges_by_buffer.remove(&buffer_id) {
+                buffer.update(cx, |buffer, _| {
+                    buffer.mark_human_authorship_ranges(ranges, human);
+                });
+            }
+        }
+
+        self.refresh_authorship_highlights(cx);
+        self.persist_authorship(cx);
+        cx.notify();
+    }
+
     pub fn sync_selections(
         &mut self,
         other: Entity<Editor>,
@@ -3400,6 +3574,25 @@ impl Editor {
             .update(cx, |buffer, cx| buffer.edit(edits, None, cx));
     }
 
+    pub fn edit_with_authorship<I, S, T>(
+        &mut self,
+        edits: I,
+        authorship_source: AuthorshipSource,
+        cx: &mut Context<Self>,
+    ) where
+        I: IntoIterator<Item = (Range<S>, T)>,
+        S: ToOffset,
+        T: Into<Arc<str>>,
+    {
+        if self.read_only(cx) {
+            return;
+        }
+
+        self.buffer.update(cx, |buffer, cx| {
+            buffer.edit_with_authorship(edits, None, authorship_source, cx)
+        });
+    }
+
     pub fn edit_with_autoindent<I, S, T>(&mut self, edits: I, cx: &mut Context<Self>)
     where
         I: IntoIterator<Item = (Range<S>, T)>,
@@ -3412,6 +3605,25 @@ impl Editor {
 
         self.buffer.update(cx, |buffer, cx| {
             buffer.edit(edits, self.autoindent_mode.clone(), cx)
+        });
+    }
+
+    pub fn edit_with_autoindent_and_authorship<I, S, T>(
+        &mut self,
+        edits: I,
+        authorship_source: AuthorshipSource,
+        cx: &mut Context<Self>,
+    ) where
+        I: IntoIterator<Item = (Range<S>, T)>,
+        S: ToOffset,
+        T: Into<Arc<str>>,
+    {
+        if self.read_only(cx) {
+            return;
+        }
+
+        self.buffer.update(cx, |buffer, cx| {
+            buffer.edit_with_authorship(edits, self.autoindent_mode.clone(), authorship_source, cx)
         });
     }
 
@@ -4355,9 +4567,19 @@ impl Editor {
 
             this.buffer.update(cx, |buffer, cx| {
                 if has_adjacent_edits {
-                    buffer.edit_non_coalesce(edits, this.autoindent_mode.clone(), cx);
+                    buffer.edit_non_coalesce_with_authorship(
+                        edits,
+                        this.autoindent_mode.clone(),
+                        AuthorshipSource::Human,
+                        cx,
+                    );
                 } else {
-                    buffer.edit(edits, this.autoindent_mode.clone(), cx);
+                    buffer.edit_with_authorship(
+                        edits,
+                        this.autoindent_mode.clone(),
+                        AuthorshipSource::Human,
+                        cx,
+                    );
                 }
             });
             linked_edits.apply(cx);
@@ -4666,10 +4888,14 @@ impl Editor {
                 }
             }
             if !edits.is_empty() {
-                this.edit(edits, cx);
+                this.edit_with_authorship(edits, AuthorshipSource::Human, cx);
             }
             if !auto_indent_edits.is_empty() {
-                this.edit_with_autoindent(auto_indent_edits, cx);
+                this.edit_with_autoindent_and_authorship(
+                    auto_indent_edits,
+                    AuthorshipSource::Human,
+                    cx,
+                );
             }
 
             let buffer = this.buffer.read(cx).snapshot(cx);
@@ -4724,7 +4950,7 @@ impl Editor {
         }
 
         self.transact(window, cx, |editor, window, cx| {
-            editor.edit(edits, cx);
+            editor.edit_with_authorship(edits, AuthorshipSource::Human, cx);
 
             editor.change_selections(Default::default(), window, cx, |s| {
                 let mut index = 0;
@@ -4807,7 +5033,7 @@ impl Editor {
                             (start_of_line..start_of_line, "\n")
                         })
                         .collect();
-                    buffer.edit(edits, None, cx);
+                    buffer.edit_with_authorship(edits, None, AuthorshipSource::Human, cx);
                 });
             }
 
@@ -8075,7 +8301,9 @@ impl Editor {
         }
 
         self.transact(window, cx, |this, window, cx| {
-            this.buffer.update(cx, |b, cx| b.edit(edits, None, cx));
+            this.buffer.update(cx, |buffer, cx| {
+                buffer.edit_with_authorship(edits, None, AuthorshipSource::Human, cx)
+            });
             this.change_selections(Default::default(), window, cx, |s| s.select(selections));
             this.refresh_edit_prediction(true, false, window, cx);
         });
@@ -11040,6 +11268,15 @@ impl Editor {
                 _ => self.do_paste(&item.text().unwrap_or_default(), None, true, window, cx),
             }
         }
+    }
+
+    pub fn paste_as_agent(
+        &mut self,
+        _: &zen_actions::editor::PasteAsAgent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.paste(&Paste, window, cx);
     }
 
     pub fn undo(&mut self, _: &Undo, window: &mut Window, cx: &mut Context<Self>) {
@@ -20941,6 +21178,8 @@ impl Editor {
                 if *is_local && self.has_active_edit_prediction() {
                     self.update_visible_edit_prediction(window, cx);
                 }
+                self.refresh_authorship_highlights(cx);
+                self.persist_authorship(cx);
 
                 // Clean up orphaned review comments after edits
                 self.cleanup_orphaned_review_comments(cx);
@@ -21041,12 +21280,17 @@ impl Editor {
                 cx.notify();
             }
             multi_buffer::Event::DirtyChanged => cx.emit(EditorEvent::DirtyChanged),
-            multi_buffer::Event::Saved => cx.emit(EditorEvent::Saved),
+            multi_buffer::Event::Saved => {
+                self.persist_authorship_now(cx);
+                cx.emit(EditorEvent::Saved)
+            }
             multi_buffer::Event::FileHandleChanged => {
                 cx.emit(EditorEvent::TitleChanged);
                 cx.emit(EditorEvent::FileHandleChanged);
             }
             multi_buffer::Event::Reloaded | multi_buffer::Event::BufferDiffChanged => {
+                self.refresh_authorship_highlights(cx);
+                self.persist_authorship(cx);
                 cx.emit(EditorEvent::TitleChanged)
             }
             multi_buffer::Event::DiagnosticsUpdated => {

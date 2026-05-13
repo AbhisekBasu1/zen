@@ -487,6 +487,7 @@ impl EditorElement {
         register_action(editor, window, Editor::go_to_previous_bookmark);
         register_action(editor, window, Editor::toggle_read_only);
         register_action(editor, window, Editor::reload_file);
+        register_action(editor, window, Editor::toggle_authorship);
 
         if !editor.read(cx).read_only(cx) {
             register_action(editor, window, Editor::newline);
@@ -542,6 +543,9 @@ impl EditorElement {
             register_action(editor, window, Editor::kill_ring_cut);
             register_action(editor, window, Editor::kill_ring_yank);
             register_action(editor, window, Editor::paste);
+            register_action(editor, window, Editor::paste_as_agent);
+            register_action(editor, window, Editor::mark_selection_as_human);
+            register_action(editor, window, Editor::mark_selection_as_agent);
             register_action(editor, window, Editor::undo);
             register_action(editor, window, Editor::redo);
             register_action(editor, window, Editor::toggle_comments);

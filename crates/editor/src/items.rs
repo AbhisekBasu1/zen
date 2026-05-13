@@ -784,6 +784,7 @@ impl Item for Editor {
     }
 
     fn on_removed(&self, cx: &mut Context<Self>) {
+        self.persist_authorship_now(cx);
         self.report_editor_event(ReportEditorEvent::Closed, None, cx);
     }
 

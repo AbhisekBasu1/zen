@@ -89,6 +89,12 @@ impl Capability {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthorshipSource {
+    Human,
+    Agent,
+}
+
 pub type BufferRow = u32;
 
 /// An in-memory representation of a source code file, including its text,
@@ -136,6 +142,7 @@ pub struct Buffer {
     encoding: &'static Encoding,
     has_bom: bool,
     reload_with_encoding_txns: HashMap<TransactionId, (&'static Encoding, bool)>,
+    human_authorship_ranges: Vec<Range<text::Anchor>>,
 }
 
 #[derive(Debug)]
@@ -1115,6 +1122,7 @@ impl Buffer {
             encoding: encoding_rs::UTF_8,
             has_bom: false,
             reload_with_encoding_txns: HashMap::default(),
+            human_authorship_ranges: Vec::new(),
         }
     }
 
@@ -2614,7 +2622,28 @@ impl Buffer {
         S: ToOffset,
         T: Into<Arc<str>>,
     {
-        self.edit_internal(edits_iter, autoindent_mode, true, cx)
+        self.edit_internal(
+            edits_iter,
+            autoindent_mode,
+            true,
+            AuthorshipSource::Agent,
+            cx,
+        )
+    }
+
+    pub fn edit_with_authorship<I, S, T>(
+        &mut self,
+        edits_iter: I,
+        autoindent_mode: Option<AutoindentMode>,
+        authorship_source: AuthorshipSource,
+        cx: &mut Context<Self>,
+    ) -> Option<clock::Lamport>
+    where
+        I: IntoIterator<Item = (Range<S>, T)>,
+        S: ToOffset,
+        T: Into<Arc<str>>,
+    {
+        self.edit_internal(edits_iter, autoindent_mode, true, authorship_source, cx)
     }
 
     /// Like [`edit`](Self::edit), but does not coalesce adjacent edits.
@@ -2629,7 +2658,99 @@ impl Buffer {
         S: ToOffset,
         T: Into<Arc<str>>,
     {
-        self.edit_internal(edits_iter, autoindent_mode, false, cx)
+        self.edit_internal(
+            edits_iter,
+            autoindent_mode,
+            false,
+            AuthorshipSource::Agent,
+            cx,
+        )
+    }
+
+    pub fn edit_non_coalesce_with_authorship<I, S, T>(
+        &mut self,
+        edits_iter: I,
+        autoindent_mode: Option<AutoindentMode>,
+        authorship_source: AuthorshipSource,
+        cx: &mut Context<Self>,
+    ) -> Option<clock::Lamport>
+    where
+        I: IntoIterator<Item = (Range<S>, T)>,
+        S: ToOffset,
+        T: Into<Arc<str>>,
+    {
+        self.edit_internal(edits_iter, autoindent_mode, false, authorship_source, cx)
+    }
+
+    pub fn human_authorship_ranges(&self) -> &[Range<text::Anchor>] {
+        &self.human_authorship_ranges
+    }
+
+    pub fn human_authorship_ranges_as_offsets(&self) -> Vec<Range<usize>> {
+        self.human_authorship_ranges
+            .iter()
+            .filter_map(|range| {
+                let start = range.start.to_offset(&self.text);
+                let end = range.end.to_offset(&self.text);
+                (start < end).then_some(start..end)
+            })
+            .collect()
+    }
+
+    pub fn restore_human_authorship_ranges(
+        &mut self,
+        previous_text: &str,
+        previous_human_ranges: Vec<Range<usize>>,
+    ) {
+        let current_text = self.text_for_range(0..self.len()).collect::<String>();
+        let edits = crate::text_diff::text_diff(previous_text, &current_text)
+            .into_iter()
+            .map(|(range, new_text)| (range, new_text.len()))
+            .collect::<Vec<_>>();
+        let mapped_ranges = transform_human_authorship_offset_ranges(
+            previous_human_ranges,
+            &edits,
+            AuthorshipSource::Agent,
+        );
+        self.set_human_authorship_ranges_from_offsets(mapped_ranges);
+    }
+
+    pub fn mark_human_authorship_ranges(
+        &mut self,
+        ranges: impl IntoIterator<Item = Range<text::Anchor>>,
+        human: bool,
+    ) {
+        let mut offset_ranges = self.human_authorship_ranges_as_offsets();
+        let edits = ranges
+            .into_iter()
+            .filter_map(|range| {
+                let start = range.start.to_offset(&self.text);
+                let end = range.end.to_offset(&self.text);
+                (start < end).then_some((start..end, end - start))
+            })
+            .collect::<Vec<_>>();
+
+        offset_ranges = transform_human_authorship_offset_ranges(
+            offset_ranges,
+            &edits,
+            if human {
+                AuthorshipSource::Human
+            } else {
+                AuthorshipSource::Agent
+            },
+        );
+        self.set_human_authorship_ranges_from_offsets(offset_ranges);
+    }
+
+    fn set_human_authorship_ranges_from_offsets(&mut self, ranges: Vec<Range<usize>>) {
+        self.human_authorship_ranges = coalesce_human_authorship_ranges(ranges)
+            .into_iter()
+            .filter_map(|range| {
+                let start = self.text.clip_offset(range.start, Bias::Right);
+                let end = self.text.clip_offset(range.end, Bias::Left);
+                (start < end).then_some(self.text.anchor_after(start)..self.text.anchor_before(end))
+            })
+            .collect();
     }
 
     fn edit_internal<I, S, T>(
@@ -2637,6 +2758,7 @@ impl Buffer {
         edits_iter: I,
         autoindent_mode: Option<AutoindentMode>,
         coalesce_adjacent: bool,
+        authorship_source: AuthorshipSource,
         cx: &mut Context<Self>,
     ) -> Option<clock::Lamport>
     where
@@ -2683,8 +2805,19 @@ impl Buffer {
         let autoindent_request = autoindent_mode
             .and_then(|mode| self.language.as_ref().map(|_| (self.snapshot(), mode)));
 
+        let authorship_edits = edits
+            .iter()
+            .map(|(range, new_text)| (range.clone(), new_text.len()))
+            .collect::<Vec<_>>();
+        let human_authorship_ranges = self.human_authorship_ranges_as_offsets();
         let edit_operation = self.text.edit(edits.iter().cloned());
         let edit_id = edit_operation.timestamp();
+        let human_authorship_ranges = transform_human_authorship_offset_ranges(
+            human_authorship_ranges,
+            &authorship_edits,
+            authorship_source,
+        );
+        self.set_human_authorship_ranges_from_offsets(human_authorship_ranges);
 
         if let Some((before_edit, mode)) = autoindent_request {
             let mut delta = 0isize;
@@ -3256,6 +3389,176 @@ impl Buffer {
 
     pub fn set_group_interval(&mut self, group_interval: Duration) {
         self.text.set_group_interval(group_interval);
+    }
+}
+
+fn transform_human_authorship_offset_ranges(
+    mut ranges: Vec<Range<usize>>,
+    edits: &[(Range<usize>, usize)],
+    authorship_source: AuthorshipSource,
+) -> Vec<Range<usize>> {
+    ranges = coalesce_human_authorship_ranges(ranges);
+    let mut offset_delta = 0isize;
+    for (old_range, new_len) in edits {
+        let start = add_offset_delta(old_range.start, offset_delta);
+        let end = add_offset_delta(old_range.end, offset_delta);
+        let old_len = old_range.end.saturating_sub(old_range.start);
+        ranges = transform_human_authorship_offset_ranges_for_edit(
+            ranges,
+            start..end,
+            *new_len,
+            authorship_source,
+        );
+        offset_delta += *new_len as isize - old_len as isize;
+    }
+    ranges
+}
+
+fn transform_human_authorship_offset_ranges_for_edit(
+    ranges: Vec<Range<usize>>,
+    range: Range<usize>,
+    new_len: usize,
+    authorship_source: AuthorshipSource,
+) -> Vec<Range<usize>> {
+    let mut transformed = Vec::with_capacity(ranges.len() + 1);
+    let old_len = range.end.saturating_sub(range.start);
+    let delta = new_len as isize - old_len as isize;
+
+    for human_range in ranges {
+        if range.is_empty() {
+            if range.start < human_range.start {
+                transformed.push(
+                    add_offset_delta(human_range.start, delta)
+                        ..add_offset_delta(human_range.end, delta),
+                );
+            } else if range.start > human_range.end {
+                transformed.push(human_range);
+            } else if matches!(authorship_source, AuthorshipSource::Human) {
+                transformed.push(human_range.start..add_offset_delta(human_range.end, delta));
+            } else if range.start <= human_range.start {
+                transformed.push(
+                    add_offset_delta(human_range.start, delta)
+                        ..add_offset_delta(human_range.end, delta),
+                );
+            } else if range.start >= human_range.end {
+                transformed.push(human_range);
+            } else {
+                transformed.push(human_range.start..range.start);
+                transformed.push(
+                    add_offset_delta(range.start, delta)..add_offset_delta(human_range.end, delta),
+                );
+            }
+        } else if human_range.end <= range.start {
+            transformed.push(human_range);
+        } else if human_range.start >= range.end {
+            transformed.push(
+                add_offset_delta(human_range.start, delta)
+                    ..add_offset_delta(human_range.end, delta),
+            );
+        } else {
+            if human_range.start < range.start {
+                transformed.push(human_range.start..range.start);
+            }
+            if human_range.end > range.end {
+                transformed.push(range.start + new_len..add_offset_delta(human_range.end, delta));
+            }
+        }
+    }
+
+    if matches!(authorship_source, AuthorshipSource::Human) && new_len > 0 {
+        transformed.push(range.start..range.start + new_len);
+    }
+
+    coalesce_human_authorship_ranges(transformed)
+}
+
+fn coalesce_human_authorship_ranges(mut ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
+    ranges.retain(|range| range.start < range.end);
+    ranges.sort_by_key(|range| (range.start, range.end));
+
+    let mut coalesced: Vec<Range<usize>> = Vec::with_capacity(ranges.len());
+    for range in ranges {
+        if let Some(last) = coalesced.last_mut()
+            && last.end >= range.start
+        {
+            last.end = last.end.max(range.end);
+            continue;
+        }
+        coalesced.push(range);
+    }
+    coalesced
+}
+
+fn add_offset_delta(offset: usize, delta: isize) -> usize {
+    if delta.is_negative() {
+        offset.saturating_sub(delta.unsigned_abs())
+    } else {
+        offset.saturating_add(delta as usize)
+    }
+}
+
+#[cfg(test)]
+mod authorship_tests {
+    use super::*;
+
+    #[test]
+    fn human_insertions_are_tracked() {
+        assert_eq!(
+            transform_human_authorship_offset_ranges(
+                Vec::new(),
+                &[(0..0, 5)],
+                AuthorshipSource::Human
+            ),
+            vec![0..5]
+        );
+    }
+
+    #[test]
+    fn agent_insertions_split_human_ranges() {
+        assert_eq!(
+            transform_human_authorship_offset_ranges(
+                vec![0..10],
+                &[(5..5, 2)],
+                AuthorshipSource::Agent
+            ),
+            vec![0..5, 7..12]
+        );
+    }
+
+    #[test]
+    fn human_replacements_mark_new_text_as_human() {
+        assert_eq!(
+            transform_human_authorship_offset_ranges(
+                vec![0..10],
+                &[(2..4, 3)],
+                AuthorshipSource::Human
+            ),
+            vec![0..11]
+        );
+    }
+
+    #[test]
+    fn agent_replacements_preserve_only_unchanged_human_text() {
+        assert_eq!(
+            transform_human_authorship_offset_ranges(
+                vec![0..10],
+                &[(2..4, 3)],
+                AuthorshipSource::Agent
+            ),
+            vec![0..2, 5..11]
+        );
+    }
+
+    #[test]
+    fn sequential_edits_adjust_later_ranges() {
+        assert_eq!(
+            transform_human_authorship_offset_ranges(
+                vec![10..20],
+                &[(0..0, 5), (12..14, 0)],
+                AuthorshipSource::Agent
+            ),
+            vec![15..23]
+        );
     }
 }
 

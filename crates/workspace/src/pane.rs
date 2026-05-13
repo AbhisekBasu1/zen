@@ -4182,6 +4182,9 @@ fn default_render_tab_bar_buttons(
             .iter()
             .any(|(_, action)| action.partial_eq(&zen_actions::preview::markdown::OpenPreview))
     });
+    let can_toggle_authorship = pane
+        .active_item()
+        .is_some_and(|_| window.is_action_available(&zen_actions::editor::ToggleAuthorship, cx));
     // Ideally we would return a vec of elements here to pass directly to the [TabBar]'s
     // `end_slot`, but due to needing a view here that isn't possible.
     let right_children = h_flex()
@@ -4219,6 +4222,25 @@ fn default_render_tab_bar_buttons(
                         Tooltip::for_action(
                             "Toggle Markdown Preview",
                             &zen_actions::preview::markdown::TogglePreview,
+                            cx,
+                        )
+                    }),
+            )
+        })
+        .when(can_toggle_authorship, |this| {
+            this.child(
+                IconButton::new("toggle_authorship", IconName::Person)
+                    .icon_size(IconSize::Small)
+                    .on_click(|_, window, cx| {
+                        window.dispatch_action(
+                            zen_actions::editor::ToggleAuthorship.boxed_clone(),
+                            cx,
+                        );
+                    })
+                    .tooltip(|_, cx| {
+                        Tooltip::for_action(
+                            "Toggle Human Authorship",
+                            &zen_actions::editor::ToggleAuthorship,
                             cx,
                         )
                     }),

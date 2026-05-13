@@ -1585,6 +1585,7 @@ dependencies = [
  "multi_buffer",
  "ordered-float",
  "parking_lot",
+ "paths",
  "project",
  "proptest",
  "proptest-derive",
