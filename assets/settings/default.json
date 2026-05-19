@@ -7,13 +7,13 @@
   },
   "icon_theme": "Zen (Default)",
   "base_keymap": "VSCode",
-  "buffer_font_family": ".ZenMono",
+  "buffer_font_family": ".SystemMonoFont",
   "buffer_font_fallbacks": null,
   "buffer_font_features": {},
   "buffer_font_size": 15,
   "buffer_font_weight": 400,
   "buffer_line_height": "comfortable",
-  "ui_font_family": ".ZenSans",
+  "ui_font_family": ".SystemUIFont",
   "ui_font_fallbacks": null,
   "ui_font_features": {
     "calt": false
@@ -34,9 +34,6 @@
   },
   "multi_cursor_modifier": "alt",
   "confirm_quit": false,
-  "restore_on_startup": "last_session",
-  "cli_default_open_behavior": "existing_window",
-  "restore_on_file_reopen": true,
   "close_on_file_delete": false,
   "close_panel_on_toggle": false,
   "drop_target_size": 0.2,
@@ -58,13 +55,7 @@
   "selection_highlight": true,
   "rounded_selection": true,
   "minimum_contrast_for_highlights": 45,
-  "show_completions_on_input": false,
-  "show_completion_documentation": false,
   "colorize_brackets": false,
-  "completion_menu_scrollbar": "never",
-  "completion_detail_alignment": "left",
-  "diff_view_style": "split",
-  "minimum_split_diff_width": 100,
   "drag_and_drop_selection": {
     "enabled": true,
     "delay": 300
@@ -82,7 +73,6 @@
     "**/*.crt",
     "**/secrets.yml"
   ],
-  "use_on_type_format": true,
   "use_autoclose": true,
   "use_auto_surround": true,
   "auto_indent": "syntax_aware",
@@ -91,13 +81,12 @@
   "allow_rewrap": "in_comments",
   "show_whitespaces": "selection",
   "whitespace_map": {
-    "space": "\u2022",
-    "tab": "\u2192"
+    "space": "•",
+    "tab": "→"
   },
   "toolbar": {
     "quick_actions": true,
-    "selections_menu": true,
-    "code_actions": false
+    "selections_menu": true
   },
   "use_system_window_tabs": false,
   "title_bar": {
@@ -110,21 +99,17 @@
   "scrollbar": {
     "show": "auto",
     "cursors": true,
-    "git_diff": true,
     "search_results": true,
     "selected_text": true,
-    "selected_symbol": true,
     "axes": {
       "horizontal": true,
       "vertical": true
-    },
-    "diagnostics": "none"
+    }
   },
   "middle_click_paste": true,
   "double_click_in_multibuffer": "select",
   "gutter": {
     "line_numbers": true,
-    "bookmarks": true,
     "folds": true,
     "min_line_number_digits": 4
   },
@@ -146,17 +131,6 @@
     "enabled": false
   },
   "relative_line_numbers": "disabled",
-  "search_wrap": true,
-  "search": {
-    "button": true,
-    "whole_word": false,
-    "case_sensitive": false,
-    "include_ignored": false,
-    "regex": false,
-    "center_on_match": false
-  },
-  "seed_search_query_from_cursor": "always",
-  "use_smartcase_search": false,
   "resize_all_panels_in_dock": [
     "left"
   ],
@@ -168,7 +142,6 @@
     "entry_spacing": "comfortable",
     "file_icons": true,
     "folder_icons": true,
-    "git_status": true,
     "indent_size": 20,
     "auto_reveal_entries": true,
     "starts_open": true,
@@ -184,7 +157,6 @@
     },
     "sort_mode": "directories_first",
     "sort_order": "default",
-    "git_status_indicator": false,
     "drag_and_drop": true,
     "hide_root": false,
     "hide_hidden": false,
@@ -192,26 +164,7 @@
       "on_create": true,
       "on_paste": true,
       "on_drop": true
-    },
-    "show_diagnostics": "off",
-    "diagnostic_badges": false
-  },
-  "git_panel": {
-    "button": true,
-    "dock": "right",
-    "default_width": 360,
-    "status_style": "icon",
-    "file_icons": false,
-    "folder_icons": true,
-    "fallback_branch_name": "main",
-    "sort_by_path": false,
-    "collapse_untracked_diff": false,
-    "tree_view": false,
-    "starts_open": false,
-    "show_count_badge": false,
-    "scrollbar": {},
-    "diff_stats": true,
-    "commit_title_max_length": 72
+    }
   },
   "autosave": "off",
   "max_tabs": null,
@@ -222,28 +175,16 @@
     "show_pinned_tabs_in_separate_row": false
   },
   "tabs": {
-    "git_status": false,
     "close_position": "right",
     "file_icons": false,
     "show_close_button": "hover",
-    "activate_on_close": "history",
-    "show_diagnostics": "off"
-  },
-  "preview_tabs": {
-    "enabled": true,
-    "enable_preview_from_project_panel": true,
-    "enable_preview_from_file_finder": false,
-    "enable_preview_from_multibuffer": true,
-    "enable_preview_multibuffer_from_code_navigation": false,
-    "enable_preview_file_from_code_navigation": true,
-    "enable_keep_preview_on_code_navigation": false
+    "activate_on_close": "history"
   },
   "file_finder": {
     "file_icons": true,
     "modal_max_width": "small",
     "skip_focus_for_active_in_search": true,
-    "include_ignored": "smart",
-    "include_channels": false
+    "include_ignored": "smart"
   },
   "remove_trailing_whitespace_on_save": true,
   "extend_comment_on_newline": true,
@@ -251,12 +192,10 @@
   "indent_list_on_tab": true,
   "ensure_final_newline_on_save": true,
   "line_ending": "detect",
-  "format_on_save": "off",
   "soft_wrap": "none",
   "preferred_line_length": 80,
   "hard_tabs": false,
   "tab_size": 4,
-  "modeline_lines": 5,
   "word_diff_enabled": true,
   "file_scan_exclusions": [
     "**/.git",
@@ -278,30 +217,6 @@
     "**/.*"
   ],
   "read_only_files": [],
-  "git": {
-    "disable_git": false,
-    "enable_status": true,
-    "enable_diff": true,
-    "git_gutter": "tracked_files",
-    "gutter_debounce": 0,
-    "inline_blame": {
-      "enabled": true,
-      "delay_ms": 0,
-      "padding": 7,
-      "show_commit_summary": false,
-      "min_column": 0
-    },
-    "blame": {
-      "show_avatar": true
-    },
-    "branch_picker": {
-      "show_author_name": true
-    },
-    "hunk_style": "staged_hollow",
-    "path_style": "file_name_first",
-    "worktree_directory": "../worktrees"
-  },
-  "git_hosting_providers": [],
   "status_bar": {
     "experimental.show": true,
     "show_active_file": false,
@@ -322,63 +237,22 @@
       ".cursorrules",
       ".windsurfrules",
       ".clinerules"
-    ],
-    "Shell Script": [
-      ".env.*"
     ]
   },
-  "completions": {
-    "words": "disabled",
-    "words_min_length": 3,
-    "lsp": false,
-    "lsp_fetch_timeout_ms": 0,
-    "lsp_insert_mode": "replace_suffix"
-  },
   "languages": {
-    "C": {
-      "format_on_save": "off",
-      "use_on_type_format": false
-    },
-    "C++": {
-      "format_on_save": "off",
-      "use_on_type_format": false
-    },
-    "Diff": {
-      "remove_trailing_whitespace_on_save": false,
-      "ensure_final_newline_on_save": false
-    },
-    "Git Commit": {
-      "allow_rewrap": "anywhere",
-      "soft_wrap": "editor_width",
-      "preferred_line_length": 72
-    },
-    "Go": {
-      "hard_tabs": true
-    },
     "Markdown": {
-      "format_on_save": "off",
-      "use_on_type_format": false,
       "remove_trailing_whitespace_on_save": false,
       "allow_rewrap": "anywhere",
-      "soft_wrap": "editor_width",
-      "completions": {
-        "words": "disabled"
-      }
+      "soft_wrap": "editor_width"
     },
     "Plain Text": {
       "allow_rewrap": "anywhere",
-      "soft_wrap": "editor_width",
-      "completions": {
-        "words": "disabled"
-      }
+      "soft_wrap": "editor_width"
     }
   },
   "session": {
     "restore_unsaved_buffers": true,
     "trust_all_worktrees": false
-  },
-  "jsx_tag_auto_close": {
-    "enabled": true
   },
   "linux": {},
   "macos": {},
@@ -388,54 +262,5 @@
   "line_indicator_format": "long",
   "proxy": "",
   "command_aliases": {},
-  "log": {},
-  "snippet_sort_order": "none",
-  "inline_code_actions": false,
-  "linked_edits": true,
-  "enable_language_server": false,
-  "language_servers": [
-    "..."
-  ],
-  "semantic_tokens": "off",
-  "code_actions_on_format": {},
-  "formatter": "auto",
-  "load_direnv": "direct",
-  "lsp": {},
-  "node": {
-    "ignore_system_version": false,
-    "path": null,
-    "npm_path": null
-  },
-  "prettier": {
-    "allowed": false,
-    "plugins": [],
-    "parser": ""
-  },
-  "diagnostics": {
-    "button": false,
-    "include_warnings": true,
-    "lsp_pull_diagnostics": {
-      "enabled": false,
-      "debounce_ms": 50
-    },
-    "inline": {
-      "enabled": false,
-      "update_debounce_ms": 150,
-      "padding": 4,
-      "min_column": 0,
-      "max_severity": null
-    }
-  },
-  "global_lsp_settings": {
-    "button": false,
-    "request_timeout": 120,
-    "notifications": {
-      "dismiss_timeout_ms": 5000
-    },
-    "semantic_token_rules": []
-  },
-  "lsp_highlight_debounce": 75,
-  "go_to_definition_fallback": "find_all_references",
-  "go_to_definition_scroll_strategy": "center",
-  "diagnostics_max_severity": "off"
+  "log": {}
 }

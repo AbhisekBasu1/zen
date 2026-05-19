@@ -70,10 +70,7 @@ impl VisualTestAppContext {
         let foreground_executor = platform.foreground_executor();
 
         let text_system = Arc::new(TextSystem::new(platform.text_system()));
-
-        let http_client = http_client::FakeHttpClient::with_404_response();
-
-        let mut app = App::new_app(platform.clone(), asset_source, http_client);
+        let mut app = App::new_app(platform.clone(), asset_source);
         app.borrow_mut().mode = GpuiMode::test();
 
         Self {

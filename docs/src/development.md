@@ -11,7 +11,7 @@ Build a debug app bundle with:
 The current debug bundle path is:
 
 ```text
-target/aarch64-apple-darwin/debug/bundle/osx/Zen Dev.app
+target/aarch64-apple-darwin/debug/bundle/osx/Zen.app
 ```
 
 The Cargo package, executable, app bundle, URL scheme, and user data paths are named Zen. Some inherited source-tree paths still contain `zed`.

@@ -35,7 +35,6 @@ encoding_rs.workspace = true
 fs.workspace = true
 futures.workspace = true
 fuzzy.workspace = true
-git.workspace = true
 gpui.workspace = true
 ignore.workspace = true
 language.workspace = true
@@ -44,7 +43,6 @@ parking_lot.workspace = true
 paths.workspace = true
 postage.workspace = true
 pretty_assertions = { workspace = true, optional = true }
-rpc = { workspace = true, features = ["gpui"] }
 serde.workspace = true
 serde_json.workspace = true
 settings.workspace = true

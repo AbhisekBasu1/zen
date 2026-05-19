@@ -101,10 +101,7 @@ impl TabMap {
             let mut last_tab_with_changed_expansion_offset = None;
             'outer: for chunk in old_snapshot.fold_snapshot.chunks(
                 fold_edit.old.end..old_end_row_successor_offset,
-                LanguageAwareStyling {
-                    tree_sitter: false,
-                    diagnostics: false,
-                },
+                LanguageAwareStyling { tree_sitter: false },
                 Highlights::default(),
             ) {
                 let mut remaining_tabs = chunk.tabs;
@@ -249,10 +246,7 @@ impl TabSnapshot {
         let first_line_chars = self
             .chunks(
                 range.start..line_end,
-                LanguageAwareStyling {
-                    tree_sitter: false,
-                    diagnostics: false,
-                },
+                LanguageAwareStyling { tree_sitter: false },
                 Highlights::default(),
             )
             .flat_map(|chunk| chunk.text.chars())
@@ -264,10 +258,7 @@ impl TabSnapshot {
         } else {
             self.chunks(
                 TabPoint::new(range.end.row(), 0)..range.end,
-                LanguageAwareStyling {
-                    tree_sitter: false,
-                    diagnostics: false,
-                },
+                LanguageAwareStyling { tree_sitter: false },
                 Highlights::default(),
             )
             .flat_map(|chunk| chunk.text.chars())
@@ -337,10 +328,7 @@ impl TabSnapshot {
     pub fn text(&self) -> String {
         self.chunks(
             TabPoint::zero()..self.max_point(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling { tree_sitter: false },
             Highlights::default(),
         )
         .map(|chunk| chunk.text)
@@ -1186,10 +1174,7 @@ mod tests {
                 tab_snapshot
                     .chunks(
                         TabPoint::new(0, ix as u32)..tab_snapshot.max_point(),
-                        LanguageAwareStyling {
-                            tree_sitter: false,
-                            diagnostics: false,
-                        },
+                        LanguageAwareStyling { tree_sitter: false },
                         Highlights::default(),
                     )
                     .map(|c| c.text)
@@ -1267,10 +1252,7 @@ mod tests {
             let mut text = String::new();
             for chunk in snapshot.chunks(
                 start..snapshot.max_point(),
-                LanguageAwareStyling {
-                    tree_sitter: false,
-                    diagnostics: false,
-                },
+                LanguageAwareStyling { tree_sitter: false },
                 Highlights::default(),
             ) {
                 if chunk.is_tab != was_tab {
@@ -1323,10 +1305,7 @@ mod tests {
         let result: String = tab_snapshot
             .chunks(
                 start..end,
-                LanguageAwareStyling {
-                    tree_sitter: false,
-                    diagnostics: false,
-                },
+                LanguageAwareStyling { tree_sitter: false },
                 Highlights::default(),
             )
             .map(|c| c.text)
@@ -1388,10 +1367,7 @@ mod tests {
                 tabs_snapshot
                     .chunks(
                         start..end,
-                        LanguageAwareStyling {
-                            tree_sitter: false,
-                            diagnostics: false,
-                        },
+                        LanguageAwareStyling { tree_sitter: false },
                         Highlights::default()
                     )
                     .map(|c| c.text)
@@ -1475,10 +1451,7 @@ mod tests {
         let (_, fold_snapshot) = FoldMap::new(inlay_snapshot);
         let chunks = fold_snapshot.chunks(
             FoldOffset(MultiBufferOffset(0))..fold_snapshot.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling { tree_sitter: false },
             Default::default(),
         );
         let mut cursor = TabStopCursor::new(chunks);
@@ -1644,10 +1617,7 @@ mod tests {
         let (_, fold_snapshot) = FoldMap::new(inlay_snapshot);
         let chunks = fold_snapshot.chunks(
             FoldOffset(MultiBufferOffset(0))..fold_snapshot.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling { tree_sitter: false },
             Default::default(),
         );
         let mut cursor = TabStopCursor::new(chunks);

@@ -18,7 +18,7 @@ use gpui::{AnyElement, IntoElement, ParentElement, Styled};
 ///             .end_icon(Icon::new(IconName::ArrowUpRight).size(IconSize::Small)),
 ///     );
 /// ```
-#[derive(IntoElement, RegisterComponent)]
+#[derive(IntoElement)]
 pub struct Banner {
     severity: Severity,
     children: Vec<AnyElement>,
@@ -126,63 +126,5 @@ impl RenderOnce for Banner {
         }
 
         banner
-    }
-}
-
-impl Component for Banner {
-    fn scope() -> ComponentScope {
-        ComponentScope::DataDisplay
-    }
-
-    fn preview(_window: &mut Window, _cx: &mut App) -> Option<AnyElement> {
-        let severity_examples = vec![
-            single_example(
-                "Default",
-                Banner::new()
-                    .child(Label::new("This is a default banner with no customization"))
-                    .into_any_element(),
-            ),
-            single_example(
-                "Info",
-                Banner::new()
-                    .severity(Severity::Info)
-                    .child(Label::new("This is an informational message"))
-                    .action_slot(
-                        Button::new("learn-more", "Learn More")
-                            .end_icon(Icon::new(IconName::ArrowUpRight).size(IconSize::Small)),
-                    )
-                    .into_any_element(),
-            ),
-            single_example(
-                "Success",
-                Banner::new()
-                    .severity(Severity::Success)
-                    .child(Label::new("Operation completed successfully"))
-                    .action_slot(Button::new("dismiss", "Dismiss"))
-                    .into_any_element(),
-            ),
-            single_example(
-                "Warning",
-                Banner::new()
-                    .severity(Severity::Warning)
-                    .child(Label::new("Your settings file uses deprecated settings"))
-                    .action_slot(Button::new("update", "Update Settings"))
-                    .into_any_element(),
-            ),
-            single_example(
-                "Error",
-                Banner::new()
-                    .severity(Severity::Error)
-                    .child(Label::new("Connection error: unable to connect to server"))
-                    .action_slot(Button::new("reconnect", "Retry"))
-                    .into_any_element(),
-            ),
-        ];
-
-        Some(
-            example_group(severity_examples)
-                .vertical()
-                .into_any_element(),
-        )
     }
 }

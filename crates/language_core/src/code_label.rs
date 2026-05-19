@@ -1,13 +1,6 @@
 use crate::highlight_map::HighlightId;
 use std::ops::Range;
 
-#[derive(Debug, Clone)]
-pub struct Symbol {
-    pub name: String,
-    pub kind: lsp::SymbolKind,
-    pub container_name: Option<String>,
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CodeLabel {
     /// The text to display.

@@ -1933,14 +1933,6 @@ extern "C" fn handle_key_up(this: &Object, _: Sel, native_event: id) {
 //     the terminal behave incorrectly by default. This behavior should be patched by our
 //     IME integration
 //   - `alt-t` should open the tasks menu
-//   - In vim mode, this keybinding should work:
-//     ```
-//        {
-//          "context": "Editor && vim_mode == insert",
-//          "bindings": {"j j": "vim::NormalBefore"}
-//        }
-//     ```
-//     and typing 'j k' in insert mode with this keybinding should insert the two characters
 //  Brazilian layout:
 //   - `" space` should create an unmarked quote
 //   - `" backspace` should delete the marked quote
@@ -1948,12 +1940,8 @@ extern "C" fn handle_key_up(this: &Object, _: Sel, native_event: id) {
 //   - `" up` should insert a quote, unmark it, and move up one line
 //   - `" cmd-down` should insert a quote, unmark it, and move to the end of the file
 //   - `cmd-ctrl-space` and clicking on an emoji should type it
-//  Czech (QWERTY) layout:
-//   - in vim mode `option-4`  should go to end of line (same as $)
 //  Japanese (Romaji) layout:
 //   - type `a i left down up enter enter` should create an unmarked text "愛"
-//   - In vim mode with `jj` bound to `vim::NormalBefore` in insert mode, typing 'j i' with
-//     Japanese IME should produce "じ" (ji), not "jい"
 
 /// Returns true if the current keyboard input source is a composition-based IME
 /// (e.g. Japanese Hiragana, Korean, Chinese Pinyin) that produces non-ASCII output.

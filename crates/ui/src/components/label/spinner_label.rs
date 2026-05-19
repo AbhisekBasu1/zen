@@ -29,7 +29,7 @@ pub enum SpinnerVariant {
 ///
 /// SpinnerLabel::dots_variant();
 /// ```
-#[derive(IntoElement, RegisterComponent)]
+#[derive(IntoElement)]
 pub struct SpinnerLabel {
     base: Label,
     variant: SpinnerVariant,
@@ -174,32 +174,5 @@ impl RenderOnce for SpinnerLabel {
                 label
             },
         )
-    }
-}
-
-impl Component for SpinnerLabel {
-    fn scope() -> ComponentScope {
-        ComponentScope::Loading
-    }
-
-    fn name() -> &'static str {
-        "Spinner Label"
-    }
-
-    fn sort_name() -> &'static str {
-        "Spinner Label"
-    }
-
-    fn preview(_window: &mut Window, _cx: &mut App) -> Option<AnyElement> {
-        let examples = vec![
-            single_example("Default", SpinnerLabel::new().into_any_element()),
-            single_example(
-                "Dots Variant",
-                SpinnerLabel::dots_variant().into_any_element(),
-            ),
-            single_example("Sand Variant", SpinnerLabel::sand().into_any_element()),
-        ];
-
-        Some(example_group(examples).vertical().into_any_element())
     }
 }

@@ -1,11 +1,8 @@
 use gpui::App;
 use language::CursorShape;
-use project::project_settings::DiagnosticSeverity;
 pub use settings::{
-    CompletionDetailAlignment, CurrentLineHighlight, DelayMs, DiffViewStyle,
-    DoubleClickInMultibuffer, GoToDefinitionFallback, GoToDefinitionScrollStrategy, HideMouseMode,
-    MultiCursorModifier, ScrollBeyondLastLine, ScrollbarDiagnostics, SeedQuerySetting,
-    SnippetSortOrder,
+    CurrentLineHighlight, DelayMs, DoubleClickInMultibuffer, HideMouseMode, MultiCursorModifier,
+    ScrollBeyondLastLine,
 };
 use settings::{RegisterSetting, RelativeLineNumbers, Settings};
 use ui::scrollbars::ShowScrollbar;
@@ -19,7 +16,6 @@ pub struct EditorSettings {
     pub current_line_highlight: CurrentLineHighlight,
     pub selection_highlight: bool,
     pub rounded_selection: bool,
-    pub lsp_highlight_debounce: DelayMs,
     pub toolbar: Toolbar,
     pub scrollbar: Scrollbar,
     pub gutter: Gutter,
@@ -32,28 +28,15 @@ pub struct EditorSettings {
     pub fast_scroll_sensitivity: f32,
     pub sticky_scroll: StickyScroll,
     pub relative_line_numbers: RelativeLineNumbers,
-    pub seed_search_query_from_cursor: SeedQuerySetting,
-    pub use_smartcase_search: bool,
     pub multi_cursor_modifier: MultiCursorModifier,
     pub redact_private_values: bool,
     pub expand_excerpt_lines: u32,
     pub excerpt_context_lines: u32,
     pub middle_click_paste: bool,
     pub double_click_in_multibuffer: DoubleClickInMultibuffer,
-    pub search_wrap: bool,
-    pub search: SearchSettings,
-    pub go_to_definition_fallback: GoToDefinitionFallback,
-    pub go_to_definition_scroll_strategy: GoToDefinitionScrollStrategy,
     pub hide_mouse: Option<HideMouseMode>,
-    pub snippet_sort_order: SnippetSortOrder,
-    pub diagnostics_max_severity: Option<DiagnosticSeverity>,
-    pub inline_code_actions: bool,
     pub drag_and_drop_selection: DragAndDropSelection,
     pub minimum_contrast_for_highlights: f32,
-    pub completion_menu_scrollbar: ShowScrollbar,
-    pub completion_detail_alignment: CompletionDetailAlignment,
-    pub diff_view_style: DiffViewStyle,
-    pub minimum_split_diff_width: f32,
 }
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct StickyScroll {
@@ -64,17 +47,13 @@ pub struct StickyScroll {
 pub struct Toolbar {
     pub quick_actions: bool,
     pub selections_menu: bool,
-    pub code_actions: bool,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Scrollbar {
     pub show: ShowScrollbar,
-    pub git_diff: bool,
     pub selected_text: bool,
-    pub selected_symbol: bool,
     pub search_results: bool,
-    pub diagnostics: ScrollbarDiagnostics,
     pub cursors: bool,
     pub axes: ScrollbarAxes,
 }
@@ -83,7 +62,6 @@ pub struct Scrollbar {
 pub struct Gutter {
     pub min_line_number_digits: usize,
     pub line_numbers: bool,
-    pub bookmarks: bool,
     pub folds: bool,
 }
 
@@ -115,23 +93,6 @@ pub struct DragAndDropSelection {
     pub delay: DelayMs,
 }
 
-/// Default options for buffer and project search items.
-#[derive(Copy, Clone, Default, Debug, PartialEq, Eq)]
-pub struct SearchSettings {
-    /// Whether to show the project search button in the status bar.
-    pub button: bool,
-    /// Whether to only match on whole words.
-    pub whole_word: bool,
-    /// Whether to match case sensitively.
-    pub case_sensitive: bool,
-    /// Whether to include gitignored files in search results.
-    pub include_ignored: bool,
-    /// Whether to interpret the search query as a regular expression.
-    pub regex: bool,
-    /// Whether to center the cursor on each search match when navigating.
-    pub center_on_match: bool,
-}
-
 impl Settings for EditorSettings {
     fn from_settings(content: &settings::SettingsContent) -> Self {
         let editor = content.editor.clone();
@@ -139,7 +100,6 @@ impl Settings for EditorSettings {
         let gutter = editor.gutter.unwrap();
         let axes = scrollbar.axes.unwrap();
         let toolbar = editor.toolbar.unwrap();
-        let search = editor.search.unwrap();
         let drag_and_drop_selection = editor.drag_and_drop_selection.unwrap();
         let sticky_scroll = editor.sticky_scroll.unwrap();
         Self {
@@ -148,26 +108,14 @@ impl Settings for EditorSettings {
             current_line_highlight: editor.current_line_highlight.unwrap(),
             selection_highlight: editor.selection_highlight.unwrap(),
             rounded_selection: editor.rounded_selection.unwrap(),
-            lsp_highlight_debounce: editor.lsp_highlight_debounce.unwrap(),
             toolbar: Toolbar {
                 quick_actions: toolbar.quick_actions.unwrap(),
                 selections_menu: toolbar.selections_menu.unwrap(),
-                code_actions: toolbar.code_actions.unwrap(),
             },
             scrollbar: Scrollbar {
                 show: scrollbar.show.map(ui_scrollbar_settings_from_raw).unwrap(),
-                git_diff: scrollbar.git_diff.unwrap()
-                    && content
-                        .git
-                        .as_ref()
-                        .unwrap()
-                        .enabled
-                        .unwrap()
-                        .is_git_diff_enabled(),
                 selected_text: scrollbar.selected_text.unwrap(),
-                selected_symbol: scrollbar.selected_symbol.unwrap(),
                 search_results: scrollbar.search_results.unwrap(),
-                diagnostics: scrollbar.diagnostics.unwrap(),
                 cursors: scrollbar.cursors.unwrap(),
                 axes: ScrollbarAxes {
                     horizontal: axes.horizontal.unwrap(),
@@ -177,7 +125,6 @@ impl Settings for EditorSettings {
             gutter: Gutter {
                 min_line_number_digits: gutter.min_line_number_digits.unwrap(),
                 line_numbers: gutter.line_numbers.unwrap(),
-                bookmarks: gutter.bookmarks.unwrap(),
                 folds: gutter.folds.unwrap(),
             },
             scroll_beyond_last_line: editor.scroll_beyond_last_line.unwrap(),
@@ -191,41 +138,18 @@ impl Settings for EditorSettings {
                 enabled: sticky_scroll.enabled.unwrap(),
             },
             relative_line_numbers: editor.relative_line_numbers.unwrap(),
-            seed_search_query_from_cursor: editor.seed_search_query_from_cursor.unwrap(),
-            use_smartcase_search: editor.use_smartcase_search.unwrap(),
             multi_cursor_modifier: editor.multi_cursor_modifier.unwrap(),
             redact_private_values: editor.redact_private_values.unwrap(),
             expand_excerpt_lines: editor.expand_excerpt_lines.unwrap(),
             excerpt_context_lines: editor.excerpt_context_lines.unwrap(),
             middle_click_paste: editor.middle_click_paste.unwrap(),
             double_click_in_multibuffer: editor.double_click_in_multibuffer.unwrap(),
-            search_wrap: editor.search_wrap.unwrap(),
-            search: SearchSettings {
-                button: search.button.unwrap(),
-                whole_word: search.whole_word.unwrap(),
-                case_sensitive: search.case_sensitive.unwrap(),
-                include_ignored: search.include_ignored.unwrap(),
-                regex: search.regex.unwrap(),
-                center_on_match: search.center_on_match.unwrap(),
-            },
-            go_to_definition_fallback: editor.go_to_definition_fallback.unwrap(),
-            go_to_definition_scroll_strategy: editor.go_to_definition_scroll_strategy.unwrap(),
             hide_mouse: editor.hide_mouse,
-            snippet_sort_order: editor.snippet_sort_order.unwrap(),
-            diagnostics_max_severity: editor.diagnostics_max_severity.map(Into::into),
-            inline_code_actions: editor.inline_code_actions.unwrap(),
             drag_and_drop_selection: DragAndDropSelection {
                 enabled: drag_and_drop_selection.enabled.unwrap(),
                 delay: drag_and_drop_selection.delay.unwrap(),
             },
             minimum_contrast_for_highlights: editor.minimum_contrast_for_highlights.unwrap().0,
-            completion_menu_scrollbar: editor
-                .completion_menu_scrollbar
-                .map(ui_scrollbar_settings_from_raw)
-                .unwrap(),
-            completion_detail_alignment: editor.completion_detail_alignment.unwrap(),
-            diff_view_style: editor.diff_view_style.unwrap(),
-            minimum_split_diff_width: editor.minimum_split_diff_width.unwrap(),
         }
     }
 }

@@ -1375,8 +1375,8 @@ pub trait InputHandler: 'static {
     /// is active. This prevents multi-stroke keybindings like `jj` from intercepting
     /// keys that the IME should compose.
     ///
-    /// Defaults to `false`. The editor overrides this based on whether it expects
-    /// character input (e.g. Vim insert mode returns `true`, normal mode returns `false`).
+    /// Defaults to `false`. Editors can override this based on whether they expect
+    /// character input.
     /// The terminal keeps the default `false` so that raw keys reach the terminal process.
     fn prefers_ime_for_printable_keys(&mut self, _window: &mut Window, _cx: &mut App) -> bool {
         false

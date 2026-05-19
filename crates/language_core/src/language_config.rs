@@ -1,6 +1,5 @@
 use crate::LanguageName;
 use collections::{HashMap, HashSet};
-use lsp::LanguageServerName;
 use regex::Regex;
 use schemars::{JsonSchema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
@@ -97,9 +96,6 @@ pub struct LanguageConfig {
     #[serde(default, deserialize_with = "deserialize_regex_vec")]
     #[schemars(schema_with = "regex_vec_json_schema")]
     pub rewrap_prefixes: Vec<Regex>,
-    /// A list of language servers that are allowed to run on subranges of a given language.
-    #[serde(default)]
-    pub scope_opt_in_language_servers: Vec<LanguageServerName>,
     #[serde(default)]
     pub overrides: HashMap<String, LanguageConfigOverride>,
     /// A list of characters that Zed should treat as word characters for the
@@ -121,23 +117,10 @@ pub struct LanguageConfig {
     /// When set, selections can be wrapped using prefix/suffix pairs on both sides.
     #[serde(default)]
     pub wrap_characters: Option<WrapCharactersConfig>,
-    /// The name of a Prettier parser that will be used for this language when no file path is available.
-    /// If there's a parser name in the language settings, that will be used instead.
-    #[serde(default)]
-    pub prettier_parser_name: Option<String>,
     /// If true, this language is only for syntax highlighting via an injection into other
     /// languages, but should not appear to the user as a distinct language.
     #[serde(default)]
     pub hidden: bool,
-    /// If configured, this language contains JSX style tags, and should support auto-closing of those tags.
-    #[serde(default)]
-    pub jsx_tag_auto_close: Option<JsxTagAutoCloseConfig>,
-    /// A list of characters that Zed should treat as word characters for completion queries.
-    #[serde(default)]
-    pub completion_query_characters: HashSet<char>,
-    /// A list of characters that Zed should treat as word characters for linked edit operations.
-    #[serde(default)]
-    pub linked_edit_characters: HashSet<char>,
 }
 
 impl LanguageConfig {
@@ -170,7 +153,6 @@ impl Default for LanguageConfig {
             ordered_list: Default::default(),
             task_list: Default::default(),
             rewrap_prefixes: Default::default(),
-            scope_opt_in_language_servers: Default::default(),
             overrides: Default::default(),
             word_characters: Default::default(),
             collapsed_placeholder: Default::default(),
@@ -178,11 +160,7 @@ impl Default for LanguageConfig {
             tab_size: None,
             soft_wrap: None,
             wrap_characters: None,
-            prettier_parser_name: None,
             hidden: false,
-            jsx_tag_auto_close: None,
-            completion_query_characters: Default::default(),
-            linked_edit_characters: Default::default(),
         }
     }
 }
@@ -227,24 +205,16 @@ pub struct LanguageMatcher {
     )]
     #[schemars(schema_with = "regex_json_schema")]
     pub first_line_pattern: Option<Regex>,
-    /// Alternative names for this language used in vim/emacs modelines.
-    /// These are matched case-insensitively against the `mode` (emacs) or
-    /// `filetype`/`ft` (vim) specified in the modeline.
-    #[serde(default)]
-    pub modeline_aliases: Vec<String>,
 }
 
 impl Ord for LanguageMatcher {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.path_suffixes
-            .cmp(&other.path_suffixes)
-            .then_with(|| {
-                self.first_line_pattern
-                    .as_ref()
-                    .map(Regex::as_str)
-                    .cmp(&other.first_line_pattern.as_ref().map(Regex::as_str))
-            })
-            .then_with(|| self.modeline_aliases.cmp(&other.modeline_aliases))
+        self.path_suffixes.cmp(&other.path_suffixes).then_with(|| {
+            self.first_line_pattern
+                .as_ref()
+                .map(Regex::as_str)
+                .cmp(&other.first_line_pattern.as_ref().map(Regex::as_str))
+        })
     }
 }
 
@@ -261,41 +231,7 @@ impl PartialEq for LanguageMatcher {
         self.path_suffixes == other.path_suffixes
             && self.first_line_pattern.as_ref().map(Regex::as_str)
                 == other.first_line_pattern.as_ref().map(Regex::as_str)
-            && self.modeline_aliases == other.modeline_aliases
     }
-}
-
-/// The configuration for JSX tag auto-closing.
-#[derive(Clone, Deserialize, JsonSchema, Debug)]
-pub struct JsxTagAutoCloseConfig {
-    /// The name of the node for a opening tag
-    pub open_tag_node_name: String,
-    /// The name of the node for an closing tag
-    pub close_tag_node_name: String,
-    /// The name of the node for a complete element with children for open and close tags
-    pub jsx_element_node_name: String,
-    /// The name of the node found within both opening and closing
-    /// tags that describes the tag name
-    pub tag_name_node_name: String,
-    /// Alternate Node names for tag names.
-    /// Specifically needed as TSX represents the name in `<Foo.Bar>`
-    /// as `member_expression` rather than `identifier` as usual
-    #[serde(default)]
-    pub tag_name_node_name_alternates: Vec<String>,
-    /// Some grammars are smart enough to detect a closing tag
-    /// that is not valid i.e. doesn't match it's corresponding
-    /// opening tag or does not have a corresponding opening tag
-    /// This should be set to the name of the node for invalid
-    /// closing tags if the grammar contains such a node, otherwise
-    /// detecting already closed tags will not work properly
-    #[serde(default)]
-    pub erroneous_close_tag_node_name: Option<String>,
-    /// See above for erroneous_close_tag_node_name for details
-    /// This should be set if the node used for the tag name
-    /// within erroneous closing tags is different from the
-    /// normal tag name node name
-    #[serde(default)]
-    pub erroneous_close_tag_name_node_name: Option<String>,
 }
 
 /// The configuration for block comments for this language.
@@ -361,14 +297,6 @@ pub struct LanguageConfigOverride {
     pub disabled_bracket_ixs: Vec<u16>,
     #[serde(default)]
     pub word_characters: Override<HashSet<char>>,
-    #[serde(default)]
-    pub completion_query_characters: Override<HashSet<char>>,
-    #[serde(default)]
-    pub linked_edit_characters: Override<HashSet<char>>,
-    #[serde(default)]
-    pub opt_into_language_servers: Vec<LanguageServerName>,
-    #[serde(default)]
-    pub prefer_label_for_snippet: Option<bool>,
 }
 
 #[derive(Clone, Deserialize, Debug, Serialize, JsonSchema)]

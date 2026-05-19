@@ -19,7 +19,6 @@ async-tar = { workspace = true, optional = true }
 async-trait.workspace = true
 collections.workspace = true
 futures.workspace = true
-git.workspace = true
 gpui.workspace = true
 ignore.workspace = true
 libc.workspace = true
@@ -27,7 +26,6 @@ log.workspace = true
 parking_lot.workspace = true
 paths.workspace = true
 rope.workspace = true
-proto.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -47,4 +45,4 @@ ashpd.workspace = true
 
 [features]
 tar-extract = ["async-tar"]
-test-support = ["gpui/test-support", "git/test-support", "util/test-support"]
+test-support = ["gpui/test-support", "util/test-support"]

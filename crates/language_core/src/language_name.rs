@@ -36,21 +36,6 @@ impl LanguageName {
     pub fn new_static(s: &'static str) -> Self {
         Self(SharedString::new_static(s))
     }
-
-    pub fn from_proto(s: String) -> Self {
-        Self(SharedString::from(s))
-    }
-
-    pub fn to_proto(&self) -> String {
-        self.0.to_string()
-    }
-
-    pub fn lsp_id(&self) -> String {
-        match self.0.as_ref() {
-            "Plain Text" => "plaintext".to_string(),
-            language_name => language_name.to_lowercase(),
-        }
-    }
 }
 
 impl From<LanguageName> for SharedString {

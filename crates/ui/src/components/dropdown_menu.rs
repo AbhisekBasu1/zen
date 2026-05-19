@@ -18,7 +18,7 @@ enum LabelKind {
     Element(AnyElement),
 }
 
-#[derive(IntoElement, RegisterComponent)]
+#[derive(IntoElement)]
 pub struct DropdownMenu {
     id: ElementId,
     label: LabelKind,
@@ -219,117 +219,5 @@ impl RenderOnce for DropdownMenu {
             })
             .when_some(self.offset, |this, offset| this.offset(offset))
             .when_some(self.handle, |this, handle| this.with_handle(handle))
-    }
-}
-
-impl Component for DropdownMenu {
-    fn scope() -> ComponentScope {
-        ComponentScope::Input
-    }
-
-    fn name() -> &'static str {
-        "DropdownMenu"
-    }
-
-    fn description() -> Option<&'static str> {
-        Some(
-            "A dropdown menu displays a list of actions or options. A dropdown menu is always activated by clicking a trigger (or via a keybinding).",
-        )
-    }
-
-    fn preview(window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        let menu = ContextMenu::build(window, cx, |this, _, _| {
-            this.entry("Option 1", None, |_, _| {})
-                .entry("Option 2", None, |_, _| {})
-                .entry("Option 3", None, |_, _| {})
-                .separator()
-                .entry("Option 4", None, |_, _| {})
-        });
-
-        let menu_with_submenu = ContextMenu::build(window, cx, |this, _, _| {
-            this.entry("Toggle All Docks", None, |_, _| {})
-                .submenu("Editor Layout", |menu, _, _| {
-                    menu.entry("Split Up", None, |_, _| {})
-                        .entry("Split Down", None, |_, _| {})
-                        .separator()
-                        .entry("Split Side", None, |_, _| {})
-                })
-                .separator()
-                .entry("Project Panel", None, |_, _| {})
-                .entry("Outline Panel", None, |_, _| {})
-                .separator()
-                .submenu("Autofill", |menu, _, _| {
-                    menu.entry("Contact…", None, |_, _| {})
-                        .entry("Passwords…", None, |_, _| {})
-                })
-                .submenu_with_icon("Predict", IconName::ZedPredict, |menu, _, _| {
-                    menu.entry("Everywhere", None, |_, _| {})
-                        .entry("At Cursor", None, |_, _| {})
-                        .entry("Over Here", None, |_, _| {})
-                        .entry("Over There", None, |_, _| {})
-                })
-        });
-
-        Some(
-            v_flex()
-                .gap_6()
-                .children(vec![
-                    example_group_with_title(
-                        "Basic Usage",
-                        vec![
-                            single_example(
-                                "Default",
-                                DropdownMenu::new("default", "Select an option", menu.clone())
-                                    .into_any_element(),
-                            ),
-                            single_example(
-                                "Full Width",
-                                DropdownMenu::new(
-                                    "full-width",
-                                    "Full Width Dropdown",
-                                    menu.clone(),
-                                )
-                                .full_width(true)
-                                .into_any_element(),
-                            ),
-                        ],
-                    ),
-                    example_group_with_title(
-                        "Submenus",
-                        vec![single_example(
-                            "With Submenus",
-                            DropdownMenu::new("submenu", "Submenu", menu_with_submenu)
-                                .into_any_element(),
-                        )],
-                    ),
-                    example_group_with_title(
-                        "Styles",
-                        vec![
-                            single_example(
-                                "Outlined",
-                                DropdownMenu::new("outlined", "Outlined Dropdown", menu.clone())
-                                    .style(DropdownStyle::Outlined)
-                                    .into_any_element(),
-                            ),
-                            single_example(
-                                "Ghost",
-                                DropdownMenu::new("ghost", "Ghost Dropdown", menu.clone())
-                                    .style(DropdownStyle::Ghost)
-                                    .into_any_element(),
-                            ),
-                        ],
-                    ),
-                    example_group_with_title(
-                        "States",
-                        vec![single_example(
-                            "Disabled",
-                            DropdownMenu::new("disabled", "Disabled Dropdown", menu)
-                                .disabled(true)
-                                .into_any_element(),
-                        )],
-                    ),
-                ])
-                .into_any_element(),
-        )
     }
 }

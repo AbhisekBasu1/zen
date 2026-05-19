@@ -3,14 +3,14 @@
 //! Not literally though - rendering, layout and all that jazz is a responsibility of [`EditorElement`][EditorElement].
 //! Instead, [`DisplayMap`] decides where Inlays/Inlay hints are displayed, when
 //! to apply a soft wrap, where to add fold indicators, whether there are any tabs in the buffer that
-//! we display as spaces and where to display custom blocks (like diagnostics).
+//! we display as spaces and where to display custom blocks.
 //! Seems like a lot? That's because it is. [`DisplayMap`] is conceptually made up
 //! of several smaller structures that form a hierarchy (starting at the bottom):
 //! - [`InlayMap`] that decides where the [`Inlay`]s should be displayed.
 //! - [`FoldMap`] that decides where the fold indicators should be; it also tracks parts of a source file that are currently folded.
 //! - [`TabMap`] that keeps track of hard tabs in a buffer.
 //! - [`WrapMap`] that handles soft wrapping.
-//! - [`BlockMap`] that tracks custom blocks such as diagnostics that should be displayed within buffer.
+//! - [`BlockMap`] that tracks custom blocks that should be displayed within buffer.
 //! - [`DisplayMap`] that adds background highlights to the regions of text.
 //!   Each one of those builds on top of preceding map.
 //!
@@ -107,7 +107,6 @@ use multi_buffer::{
     MultiBufferPoint, MultiBufferRow, MultiBufferSnapshot, RowInfo, ToOffset, ToPoint,
 };
 use project::InlayId;
-use project::project_settings::DiagnosticSeverity;
 use serde::Deserialize;
 use settings::Settings;
 use smallvec::SmallVec;
@@ -158,16 +157,10 @@ impl NavigationOverlayKey {
 /// Note the order is important as it determines the priority of the highlights, lower means higher priority
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum HighlightKey {
-    // Note we want semantic tokens > colorized brackets
-    // to allow language server highlights to work over brackets.
     ColorizeBracket(usize),
-    SemanticToken,
     // below is sorted lexicographically, as there is no relevant ordering for these aside from coming after the above
     AuthorshipHuman,
-    BufferSearchHighlights,
     ConsoleAnsiHighlight(usize),
-    DocumentHighlightRead,
-    DocumentHighlightWrite,
     EditPredictionHighlight,
     Editor,
     HighlightOnYank,
@@ -177,12 +170,8 @@ pub enum HighlightKey {
     MatchingBracket,
     NavigationOverlay(NavigationOverlayKey),
     PendingInput,
-    ProjectSearchView,
-    Rename,
-    SearchWithinRange,
     SelectedTextHighlight,
     SyntaxTreeView(usize),
-    VimExchange,
 }
 
 pub trait ToDisplayPoint {
@@ -201,7 +190,7 @@ pub struct CompanionExcerptPatch {
 }
 
 /// Decides how text in a [`MultiBuffer`] should be displayed in a buffer, handling inlay hints,
-/// folding, hard tabs, soft wrapping, custom blocks (like diagnostics), and highlighting.
+/// folding, hard tabs, soft wrapping, custom blocks, and highlighting.
 ///
 /// See the [module level documentation](self) for more information.
 pub struct DisplayMap {
@@ -217,7 +206,7 @@ pub struct DisplayMap {
     tab_map: TabMap,
     /// Handles soft wrapping.
     wrap_map: Entity<WrapMap>,
-    /// Tracks custom blocks such as diagnostics that should be displayed within buffer.
+    /// Tracks custom blocks that should be displayed within buffer.
     block_map: BlockMap,
     /// Regions of text that should be highlighted.
     text_highlights: TextHighlights,
@@ -228,7 +217,6 @@ pub struct DisplayMap {
     pub(crate) fold_placeholder: FoldPlaceholder,
     pub clip_at_line_ends: bool,
     pub(crate) masked: bool,
-    pub(crate) diagnostics_max_severity: DiagnosticSeverity,
     pub(crate) companion: Option<(WeakEntity<DisplayMap>, Entity<Companion>)>,
 }
 
@@ -239,14 +227,6 @@ pub(crate) struct Companion {
 }
 
 impl Companion {
-    pub(crate) fn new(rhs_display_map_id: EntityId) -> Self {
-        Self {
-            rhs_display_map_id,
-            rhs_custom_block_to_balancing_block: Default::default(),
-            lhs_custom_block_to_balancing_block: Default::default(),
-        }
-    }
-
     pub(crate) fn is_rhs(&self, display_map_id: EntityId) -> bool {
         self.rhs_display_map_id == display_map_id
     }
@@ -270,9 +250,9 @@ impl Companion {
         bounds: Range<MultiBufferPoint>,
     ) -> Vec<CompanionExcerptPatch> {
         if self.is_rhs(display_map_id) {
-            crate::split::patches_for_rhs_range(companion_snapshot, our_snapshot, bounds)
+            patches_for_rhs_range(companion_snapshot, our_snapshot, bounds)
         } else {
-            crate::split::patches_for_lhs_range(companion_snapshot, our_snapshot, bounds)
+            patches_for_lhs_range(companion_snapshot, our_snapshot, bounds)
         }
     }
 
@@ -284,9 +264,9 @@ impl Companion {
         point: MultiBufferPoint,
     ) -> Range<MultiBufferPoint> {
         let patches = if self.is_rhs(display_map_id) {
-            crate::split::patches_for_lhs_range(our_snapshot, companion_snapshot, point..point)
+            patches_for_lhs_range(our_snapshot, companion_snapshot, point..point)
         } else {
-            crate::split::patches_for_rhs_range(our_snapshot, companion_snapshot, point..point)
+            patches_for_rhs_range(our_snapshot, companion_snapshot, point..point)
         };
 
         let Some(excerpt) = patches.into_iter().next() else {
@@ -309,9 +289,9 @@ impl Companion {
         point: MultiBufferPoint,
     ) -> Range<MultiBufferPoint> {
         let patches = if self.is_rhs(display_map_id) {
-            crate::split::patches_for_rhs_range(companion_snapshot, our_snapshot, point..point)
+            patches_for_rhs_range(companion_snapshot, our_snapshot, point..point)
         } else {
-            crate::split::patches_for_lhs_range(companion_snapshot, our_snapshot, point..point)
+            patches_for_lhs_range(companion_snapshot, our_snapshot, point..point)
         };
 
         let Some(excerpt) = patches.into_iter().next() else {
@@ -319,6 +299,34 @@ impl Companion {
         };
         excerpt.patch.edit_for_old_position(point).new
     }
+}
+
+fn patches_for_lhs_range(
+    _rhs_snapshot: &MultiBufferSnapshot,
+    _lhs_snapshot: &MultiBufferSnapshot,
+    lhs_bounds: Range<MultiBufferPoint>,
+) -> Vec<CompanionExcerptPatch> {
+    patches_for_range(lhs_bounds)
+}
+
+fn patches_for_rhs_range(
+    _lhs_snapshot: &MultiBufferSnapshot,
+    _rhs_snapshot: &MultiBufferSnapshot,
+    rhs_bounds: Range<MultiBufferPoint>,
+) -> Vec<CompanionExcerptPatch> {
+    patches_for_range(rhs_bounds)
+}
+
+fn patches_for_range(bounds: Range<MultiBufferPoint>) -> Vec<CompanionExcerptPatch> {
+    vec![CompanionExcerptPatch {
+        patch: Patch::new(vec![text::Edit {
+            old: bounds.clone(),
+            new: bounds.clone(),
+        }]),
+        edited_range: bounds.clone(),
+        source_excerpt_range: bounds.clone(),
+        target_excerpt_range: bounds,
+    }]
 }
 
 impl DisplayMap {
@@ -330,7 +338,6 @@ impl DisplayMap {
         buffer_header_height: u32,
         excerpt_header_height: u32,
         fold_placeholder: FoldPlaceholder,
-        diagnostics_max_severity: DiagnosticSeverity,
         cx: &mut Context<Self>,
     ) -> Self {
         let tab_size = Self::tab_size(&buffer, cx);
@@ -360,151 +367,12 @@ impl DisplayMap {
             block_map,
             crease_map,
             fold_placeholder,
-            diagnostics_max_severity,
             text_highlights: Default::default(),
             inlay_highlights: Default::default(),
             clip_at_line_ends: false,
             masked: false,
             companion: None,
         }
-    }
-
-    pub(crate) fn set_companion(
-        &mut self,
-        companion: Option<(Entity<DisplayMap>, Entity<Companion>)>,
-        cx: &mut Context<Self>,
-    ) {
-        let this = cx.weak_entity();
-        // Reverting to no companion, recompute the block map to clear spacers
-        // and balancing blocks.
-        let Some((companion_display_map, companion)) = companion else {
-            let Some((_, companion)) = self.companion.take() else {
-                return;
-            };
-            assert_eq!(self.entity_id, companion.read(cx).rhs_display_map_id);
-            let (snapshot, _edits) = self.sync_through_wrap(cx);
-            let edits = Patch::new(vec![text::Edit {
-                old: WrapRow(0)
-                    ..self.block_map.wrap_snapshot.borrow().max_point().row() + WrapRow(1),
-                new: WrapRow(0)..snapshot.max_point().row() + WrapRow(1),
-            }]);
-            self.block_map.deferred_edits.set(edits);
-            self.block_map.retain_blocks_raw(&mut |block| {
-                if companion
-                    .read(cx)
-                    .lhs_custom_block_to_balancing_block
-                    .borrow()
-                    .values()
-                    .any(|id| *id == block.id)
-                {
-                    return false;
-                }
-                true
-            });
-            return;
-        };
-        assert_eq!(self.entity_id, companion.read(cx).rhs_display_map_id);
-
-        // Note, throwing away the wrap edits because we defer spacer computation to the first render.
-        let snapshot = {
-            let edits = self.buffer_subscription.consume();
-            let snapshot = self.buffer.read(cx).snapshot(cx);
-            let tab_size = Self::tab_size(&self.buffer, cx);
-            let (snapshot, edits) = self.inlay_map.sync(snapshot, edits.into_inner());
-            let (mut writer, snapshot, edits) = self.fold_map.write(snapshot, edits);
-            let (snapshot, edits) = self.tab_map.sync(snapshot, edits, tab_size);
-            let (_snapshot, _edits) = self
-                .wrap_map
-                .update(cx, |wrap_map, cx| wrap_map.sync(snapshot, edits, cx));
-
-            let (snapshot, edits) = writer.unfold_intersecting([Anchor::Min..Anchor::Max], true);
-            let (snapshot, edits) = self.tab_map.sync(snapshot, edits, tab_size);
-            let (snapshot, _edits) = self
-                .wrap_map
-                .update(cx, |wrap_map, cx| wrap_map.sync(snapshot, edits, cx));
-
-            self.block_map.retain_blocks_raw(&mut |block| {
-                !matches!(block.placement, BlockPlacement::Replace(_))
-            });
-            snapshot
-        };
-
-        let (companion_wrap_snapshot, _companion_wrap_edits) =
-            companion_display_map.update(cx, |dm, cx| dm.sync_through_wrap(cx));
-
-        let edits = Patch::new(vec![text::Edit {
-            old: WrapRow(0)..self.block_map.wrap_snapshot.borrow().max_point().row() + WrapRow(1),
-            new: WrapRow(0)..snapshot.max_point().row() + WrapRow(1),
-        }]);
-        self.block_map.deferred_edits.set(edits);
-
-        let all_blocks: Vec<_> = self.block_map.blocks_raw().map(Clone::clone).collect();
-
-        companion_display_map.update(cx, |companion_display_map, cx| {
-            // Sync folded buffers from RHS to LHS. Also clean up stale
-            // entries: the block map doesn't remove buffers from
-            // `folded_buffers` when they leave the multibuffer, so we
-            // unfold any RHS buffers whose companion mapping is missing.
-            let rhs_snapshot = self.buffer.read(cx).snapshot(cx);
-            let mut buffers_to_unfold = Vec::new();
-            for my_buffer in self.folded_buffers() {
-                let their_buffer = rhs_snapshot
-                    .diff_for_buffer_id(*my_buffer)
-                    .map(|diff| diff.base_text().remote_id());
-
-                let Some(their_buffer) = their_buffer else {
-                    buffers_to_unfold.push(*my_buffer);
-                    continue;
-                };
-
-                companion_display_map
-                    .block_map
-                    .folded_buffers
-                    .insert(their_buffer);
-            }
-            for buffer_id in buffers_to_unfold {
-                self.block_map.folded_buffers.remove(&buffer_id);
-            }
-
-            for block in all_blocks {
-                let Some(their_block) = block_map::balancing_block(
-                    &block.properties(),
-                    snapshot.buffer(),
-                    companion_wrap_snapshot.buffer(),
-                    self.entity_id,
-                    companion.read(cx),
-                ) else {
-                    continue;
-                };
-                let their_id = companion_display_map
-                    .block_map
-                    .insert_block_raw(their_block, companion_wrap_snapshot.buffer());
-                companion.update(cx, |companion, _cx| {
-                    companion
-                        .custom_block_to_balancing_block(self.entity_id)
-                        .borrow_mut()
-                        .insert(block.id, their_id);
-                });
-            }
-            let companion_edits = Patch::new(vec![text::Edit {
-                old: WrapRow(0)
-                    ..companion_display_map
-                        .block_map
-                        .wrap_snapshot
-                        .borrow()
-                        .max_point()
-                        .row()
-                        + WrapRow(1),
-                new: WrapRow(0)..companion_wrap_snapshot.max_point().row() + WrapRow(1),
-            }]);
-            companion_display_map
-                .block_map
-                .deferred_edits
-                .set(companion_edits);
-            companion_display_map.companion = Some((this, companion.clone()));
-        });
-
-        self.companion = Some((companion_display_map.downgrade(), companion));
     }
 
     pub(crate) fn companion(&self) -> Option<&Entity<Companion>> {
@@ -538,22 +406,17 @@ impl DisplayMap {
         companion_display_map.update(cx, |companion_display_map, cx| {
             let (companion_wrap_snapshot, companion_wrap_edits) =
                 companion_display_map.sync_through_wrap(cx);
-            companion_display_map
-                .buffer
-                .update(cx, |companion_multibuffer, cx| {
-                    companion.update(cx, |companion, cx| {
-                        let companion_view = CompanionViewMut::new(
-                            display_map_id,
-                            companion_display_map.entity_id,
-                            &companion_wrap_snapshot,
-                            &companion_wrap_edits,
-                            companion_multibuffer,
-                            companion,
-                            &mut companion_display_map.block_map,
-                        );
-                        callback(Some(companion_view), cx)
-                    })
-                })
+            companion.update(cx, |companion, cx| {
+                let companion_view = CompanionViewMut::new(
+                    display_map_id,
+                    companion_display_map.entity_id,
+                    &companion_wrap_snapshot,
+                    &companion_wrap_edits,
+                    companion,
+                    &mut companion_display_map.block_map,
+                );
+                callback(Some(companion_view), cx)
+            })
         })
     }
 
@@ -611,7 +474,6 @@ impl DisplayMap {
             display_map_id: self.entity_id,
             companion_display_snapshot,
             block_snapshot,
-            diagnostics_max_severity: self.diagnostics_max_severity,
             crease_snapshot: self.crease_map.snapshot(),
             text_highlights: self.text_highlights.clone(),
             inlay_highlights: self.inlay_highlights.clone(),
@@ -633,7 +495,6 @@ impl DisplayMap {
             display_map_id: self.entity_id,
             companion_display_snapshot: None,
             block_snapshot,
-            diagnostics_max_severity: self.diagnostics_max_severity,
             crease_snapshot: self.crease_map.snapshot(),
             text_highlights: self.text_highlights.clone(),
             inlay_highlights: self.inlay_highlights.clone(),
@@ -1363,7 +1224,6 @@ pub struct DisplaySnapshot {
     inlay_highlights: InlayHighlights,
     clip_at_line_ends: bool,
     masked: bool,
-    diagnostics_max_severity: DiagnosticSeverity,
     pub(crate) fold_placeholder: FoldPlaceholder,
 }
 
@@ -1409,19 +1269,6 @@ impl DisplaySnapshot {
 
     pub fn is_empty(&self) -> bool {
         self.buffer_snapshot().len() == MultiBufferOffset(0)
-    }
-
-    /// Returns whether tree-sitter syntax highlighting should be used.
-    /// Returns `false` if any buffer with semantic token highlights has the "full" mode setting,
-    /// meaning LSP semantic tokens should replace tree-sitter highlighting.
-    pub fn use_tree_sitter_for_syntax(&self, position: DisplayRow, cx: &App) -> bool {
-        let position = DisplayPoint::new(position, 0);
-        let Some((buffer_snapshot, ..)) = self.point_to_buffer_point(position.to_point(self))
-        else {
-            return false;
-        };
-        let settings = LanguageSettings::for_buffer_snapshot(&buffer_snapshot, None, cx);
-        settings.semantic_tokens.use_tree_sitter()
     }
 
     pub fn row_infos(&self, start_row: DisplayRow) -> impl Iterator<Item = RowInfo> + '_ {
@@ -1474,7 +1321,6 @@ impl DisplaySnapshot {
         }
     }
 
-    // used by line_mode selections and tries to match vim behavior
     pub fn expand_to_line(&self, range: Range<Point>) -> Range<Point> {
         let new_start = MultiBufferPoint::new(range.start.row, 0);
         let new_end = if range.end.column > 0 {
@@ -1592,10 +1438,7 @@ impl DisplaySnapshot {
         self.block_snapshot
             .chunks(
                 BlockRow(display_row.0)..BlockRow(self.max_point().row().next_row().0),
-                LanguageAwareStyling {
-                    tree_sitter: false,
-                    diagnostics: false,
-                },
+                LanguageAwareStyling { tree_sitter: false },
                 self.masked,
                 Highlights::default(),
             )
@@ -1609,10 +1452,7 @@ impl DisplaySnapshot {
             self.block_snapshot
                 .chunks(
                     BlockRow(row)..BlockRow(row + 1),
-                    LanguageAwareStyling {
-                        tree_sitter: false,
-                        diagnostics: false,
-                    },
+                    LanguageAwareStyling { tree_sitter: false },
                     self.masked,
                     Highlights::default(),
                 )
@@ -1680,40 +1520,10 @@ impl DisplaySnapshot {
                 }
             });
 
-            let diagnostic_highlight = chunk
-                .diagnostic_severity
-                .filter(|severity| {
-                    self.diagnostics_max_severity
-                        .into_lsp()
-                        .is_some_and(|max_severity| severity <= &max_severity)
-                })
-                .map(|severity| HighlightStyle {
-                    fade_out: chunk
-                        .is_unnecessary
-                        .then_some(editor_style.unnecessary_code_fade),
-                    underline: (chunk.underline
-                        && editor_style.show_underlines
-                        && !(chunk.is_unnecessary && severity > lsp::DiagnosticSeverity::WARNING))
-                        .then(|| {
-                            let diagnostic_color =
-                                super::diagnostic_style(severity, &editor_style.status);
-                            UnderlineStyle {
-                                color: Some(diagnostic_color),
-                                thickness: 1.0.into(),
-                                wavy: true,
-                            }
-                        }),
-                    ..Default::default()
-                });
-
-            let style = [
-                syntax_highlight_style,
-                chunk_highlight,
-                diagnostic_highlight,
-            ]
-            .into_iter()
-            .flatten()
-            .reduce(|acc, highlight| acc.highlight(highlight));
+            let style = [syntax_highlight_style, chunk_highlight]
+                .into_iter()
+                .flatten()
+                .reduce(|acc, highlight| acc.highlight(highlight));
 
             HighlightedChunk {
                 text: chunk.text,
@@ -1745,10 +1555,7 @@ impl DisplaySnapshot {
         let range = display_row..display_row.next_row();
         for chunk in self.highlighted_chunks(
             range,
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling { tree_sitter: false },
             editor_style,
         ) {
             line.push_str(chunk.text);
@@ -2370,20 +2177,13 @@ pub mod tests {
     };
     use Bias::*;
     use block_map::BlockPlacement;
-    use gpui::{
-        App, AppContext as _, BorrowAppContext, Element, Hsla, Rgba, div, font, observe, px,
-    };
-    use language::{
-        Buffer, Diagnostic, DiagnosticEntry, DiagnosticSet, Language, LanguageConfig,
-        LanguageMatcher,
-    };
-    use lsp::LanguageServerId;
+    use gpui::{App, AppContext as _, BorrowAppContext, Element, Hsla, div, font, observe, px};
+    use language::{Buffer, Language, LanguageConfig, LanguageMatcher};
 
     use futures::stream::StreamExt;
     use rand::{Rng, prelude::*};
     use settings::{SettingsContent, SettingsStore};
     use std::{env, sync::Arc};
-    use text::PointUtf16;
     use theme::{LoadThemes, SyntaxTheme};
     use unindent::Unindent as _;
     use util::test::{marked_text_ranges, sample_text};
@@ -2437,7 +2237,6 @@ pub mod tests {
                 buffer_start_excerpt_header_height,
                 excerpt_header_height,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             )
         });
@@ -2690,7 +2489,6 @@ pub mod tests {
                     1,
                     1,
                     FoldPlaceholder::test(),
-                    DiagnosticSeverity::Warning,
                     cx,
                 )
             });
@@ -2800,7 +2598,6 @@ pub mod tests {
                 1,
                 1,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             )
         });
@@ -2862,7 +2659,6 @@ pub mod tests {
                 1,
                 1,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             )
         });
@@ -2930,12 +2726,12 @@ pub mod tests {
                     },
                     ..Default::default()
                 },
-                Some(tree_sitter_rust::LANGUAGE.into()),
+                Some(language::tree_sitter_md::LANGUAGE.into()),
             )
             .with_highlights_query(
                 r#"
-                (mod_item name: (identifier) body: _ @mod.body)
-                (function_item name: (identifier) @fn.name)
+                (paragraph) @mod.body
+                (atx_heading) @fn.name
                 "#,
             )
             .unwrap(),
@@ -2963,7 +2759,6 @@ pub mod tests {
                 1,
                 1,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             )
         });
@@ -3035,13 +2830,13 @@ pub mod tests {
                     name: "Rust".into(),
                     ..Default::default()
                 },
-                Some(tree_sitter_rust::LANGUAGE.into()),
+                Some(language::tree_sitter_md::LANGUAGE.into()),
             )
             .with_highlights_query(
                 r#"
-                (string_literal) @string
-                "const" @keyword
-                [":" ";"] @punctuation
+                (paragraph) @string
+                (atx_heading) @keyword
+                (list_marker_minus) @punctuation
                 "#,
             )
             .unwrap(),
@@ -3064,7 +2859,6 @@ pub mod tests {
                 1,
                 1,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             )
         });
@@ -3121,134 +2915,6 @@ pub mod tests {
     }
 
     #[gpui::test]
-    async fn test_chunks_with_diagnostics_across_blocks(cx: &mut gpui::TestAppContext) {
-        cx.background_executor
-            .set_block_on_ticks(usize::MAX..=usize::MAX);
-
-        let text = r#"
-            struct A {
-                b: usize;
-            }
-            const c: usize = 1;
-        "#
-        .unindent();
-
-        cx.update(|cx| init_test(cx, &|_| {}));
-
-        let buffer = cx.new(|cx| Buffer::local(text, cx));
-
-        buffer.update(cx, |buffer, cx| {
-            buffer.update_diagnostics(
-                LanguageServerId(0),
-                DiagnosticSet::new(
-                    [DiagnosticEntry {
-                        range: PointUtf16::new(0, 0)..PointUtf16::new(2, 1),
-                        diagnostic: Diagnostic {
-                            severity: lsp::DiagnosticSeverity::ERROR,
-                            group_id: 1,
-                            message: "hi".into(),
-                            ..Default::default()
-                        },
-                    }],
-                    buffer,
-                ),
-                cx,
-            )
-        });
-
-        let buffer = cx.new(|cx| MultiBuffer::singleton(buffer, cx));
-        let buffer_snapshot = buffer.read_with(cx, |buffer, cx| buffer.snapshot(cx));
-
-        let map = cx.new(|cx| {
-            DisplayMap::new(
-                buffer,
-                font("Courier"),
-                px(16.0),
-                None,
-                1,
-                1,
-                FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
-                cx,
-            )
-        });
-
-        let black = gpui::black().to_rgb();
-        let red = gpui::red().to_rgb();
-
-        // Insert a block in the middle of a multi-line diagnostic.
-        map.update(cx, |map, cx| {
-            map.highlight_text(
-                HighlightKey::Editor,
-                vec![
-                    buffer_snapshot.anchor_before(Point::new(3, 9))
-                        ..buffer_snapshot.anchor_after(Point::new(3, 14)),
-                    buffer_snapshot.anchor_before(Point::new(3, 17))
-                        ..buffer_snapshot.anchor_after(Point::new(3, 18)),
-                ],
-                red.into(),
-                false,
-                cx,
-            );
-            map.insert_blocks(
-                [BlockProperties {
-                    placement: BlockPlacement::Below(
-                        buffer_snapshot.anchor_before(Point::new(1, 0)),
-                    ),
-                    height: Some(1),
-                    style: BlockStyle::Sticky,
-                    render: Arc::new(|_| div().into_any()),
-                    priority: 0,
-                }],
-                cx,
-            )
-        });
-
-        let snapshot = map.update(cx, |map, cx| map.snapshot(cx));
-        let mut chunks = Vec::<(String, Option<lsp::DiagnosticSeverity>, Rgba)>::new();
-        for chunk in snapshot.chunks(
-            DisplayRow(0)..DisplayRow(5),
-            LanguageAwareStyling {
-                tree_sitter: true,
-                diagnostics: true,
-            },
-            Default::default(),
-        ) {
-            let color = chunk
-                .highlight_style
-                .and_then(|style| style.color)
-                .map_or(black, |color| color.to_rgb());
-            if let Some((last_chunk, last_severity, last_color)) = chunks.last_mut()
-                && *last_severity == chunk.diagnostic_severity
-                && *last_color == color
-            {
-                last_chunk.push_str(chunk.text);
-                continue;
-            }
-
-            chunks.push((chunk.text.to_string(), chunk.diagnostic_severity, color));
-        }
-
-        assert_eq!(
-            chunks,
-            [
-                (
-                    "struct A {\n    b: usize;\n".into(),
-                    Some(lsp::DiagnosticSeverity::ERROR),
-                    black
-                ),
-                ("\n".into(), None, black),
-                ("}".into(), Some(lsp::DiagnosticSeverity::ERROR), black),
-                ("\nconst c: ".into(), None, black),
-                ("usize".into(), None, red),
-                (" = ".into(), None, black),
-                ("1".into(), None, red),
-                (";\n".into(), None, black),
-            ]
-        );
-    }
-
-    #[gpui::test]
     async fn test_point_translation_with_replace_blocks(cx: &mut gpui::TestAppContext) {
         cx.background_executor
             .set_block_on_ticks(usize::MAX..=usize::MAX);
@@ -3266,7 +2932,6 @@ pub mod tests {
                 1,
                 1,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             )
         });
@@ -3378,12 +3043,12 @@ pub mod tests {
                     },
                     ..Default::default()
                 },
-                Some(tree_sitter_rust::LANGUAGE.into()),
+                Some(language::tree_sitter_md::LANGUAGE.into()),
             )
             .with_highlights_query(
                 r#"
-                (mod_item name: (identifier) body: _ @mod.body)
-                (function_item name: (identifier) @fn.name)
+                (paragraph) @mod.body
+                (atx_heading) @fn.name
                 "#,
             )
             .unwrap(),
@@ -3407,7 +3072,6 @@ pub mod tests {
                 1,
                 1,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             )
         });
@@ -3465,12 +3129,12 @@ pub mod tests {
                     },
                     ..Default::default()
                 },
-                Some(tree_sitter_rust::LANGUAGE.into()),
+                Some(language::tree_sitter_md::LANGUAGE.into()),
             )
             .with_highlights_query(
                 r#"
-                ":" @operator
-                (string_literal) @string
+                (paragraph) @string
+                (list_marker_minus) @operator
                 "#,
             )
             .unwrap(),
@@ -3495,7 +3159,6 @@ pub mod tests {
                 1,
                 1,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             )
         });
@@ -3621,7 +3284,6 @@ pub mod tests {
                 1,
                 1,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             );
             let snapshot = map.buffer.read(cx).snapshot(cx);
@@ -3659,7 +3321,6 @@ pub mod tests {
                 1,
                 1,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             )
         });
@@ -3735,7 +3396,6 @@ pub mod tests {
                 1,
                 1,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             )
         });
@@ -3767,10 +3427,7 @@ pub mod tests {
         let mut chunks: Vec<(String, Option<Hsla>, Option<Hsla>)> = Vec::new();
         for chunk in snapshot.chunks(
             rows,
-            LanguageAwareStyling {
-                tree_sitter: true,
-                diagnostics: true,
-            },
+            LanguageAwareStyling { tree_sitter: true },
             HighlightStyles::default(),
         ) {
             let syntax_color = chunk
@@ -3818,7 +3475,6 @@ pub mod tests {
                 1,
                 1,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             )
         });
@@ -3952,7 +3608,6 @@ pub mod tests {
                 1,
                 1,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             )
         });

@@ -253,10 +253,7 @@ mod tests {
         // Get all chunks and verify their bitmaps
         let chunks = CustomHighlightsChunks::new(
             MultiBufferOffset(0)..buffer_snapshot.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling { tree_sitter: false },
             None,
             None,
             &buffer_snapshot,

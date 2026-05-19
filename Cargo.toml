@@ -2,21 +2,14 @@
 resolver = "2"
 members = [
     "crates/assets",
-    "crates/buffer_diff",
-    "crates/client",
     "crates/clock",
     "crates/collections",
-    "crates/component",
     "crates/editor",
     "crates/file_finder",
     "crates/file_icons",
     "crates/fs",
     "crates/fuzzy",
     "crates/fuzzy_nucleo",
-    "crates/git",
-    "crates/git_graph",
-    "crates/git_hosting_providers",
-    "crates/git_ui",
     "crates/go_to_line",
     "crates/grammars",
     "crates/gpui",
@@ -25,12 +18,10 @@ members = [
     "crates/gpui_macros",
     "crates/gpui_platform",
     "crates/gpui_util",
-    "crates/http_client",
     "crates/icons",
     "crates/language",
     "crates/language_core",
     "crates/languages",
-    "crates/lsp",
     "crates/markdown",
     "crates/markdown_preview",
     "crates/menu",
@@ -41,18 +32,14 @@ members = [
     "crates/picker",
     "crates/project",
     "crates/project_panel",
-    "crates/proto",
     "crates/refineable",
     "crates/refineable/derive_refineable",
     "crates/rope",
-    "crates/rpc",
     "crates/scheduler",
-    "crates/search",
     "crates/settings",
     "crates/settings_content",
     "crates/settings_json",
     "crates/settings_macros",
-    "crates/snippet",
     "crates/sum_tree",
     "crates/syntax_theme",
     "crates/text",
@@ -87,11 +74,8 @@ edition = "2024"
 #
 
 assets = { path = "crates/assets" }
-buffer_diff = { path = "crates/buffer_diff" }
-client = { path = "crates/client" }
 clock = { path = "crates/clock" }
 collections = { path = "crates/collections", version = "0.1.0" }
-component = { path = "crates/component" }
 derive_refineable = { path = "crates/refineable/derive_refineable" }
 editor = { path = "crates/editor" }
 file_finder = { path = "crates/file_finder" }
@@ -99,10 +83,6 @@ file_icons = { path = "crates/file_icons" }
 fs = { path = "crates/fs" }
 fuzzy = { path = "crates/fuzzy" }
 fuzzy_nucleo = { path = "crates/fuzzy_nucleo" }
-git = { path = "crates/git" }
-git_graph = { path = "crates/git_graph" }
-git_hosting_providers = { path = "crates/git_hosting_providers" }
-git_ui = { path = "crates/git_ui" }
 go_to_line = { path = "crates/go_to_line" }
 grammars = { path = "crates/grammars" }
 gpui = { path = "crates/gpui", default-features = false }
@@ -111,12 +91,10 @@ gpui_macos = { path = "crates/gpui_macos", default-features = false }
 gpui_macros = { path = "crates/gpui_macros" }
 gpui_platform = { path = "crates/gpui_platform", default-features = false }
 gpui_util = { path = "crates/gpui_util" }
-http_client = { path = "crates/http_client" }
 icons = { path = "crates/icons" }
 language = { path = "crates/language" }
 language_core = { path = "crates/language_core" }
 languages = { path = "crates/languages" }
-lsp = { path = "crates/lsp" }
 markdown = { path = "crates/markdown" }
 markdown_preview = { path = "crates/markdown_preview" }
 menu = { path = "crates/menu" }
@@ -127,17 +105,13 @@ paths = { path = "crates/paths" }
 picker = { path = "crates/picker" }
 project = { path = "crates/project" }
 project_panel = { path = "crates/project_panel" }
-proto = { path = "crates/proto" }
 refineable = { path = "crates/refineable" }
 rope = { path = "crates/rope" }
-rpc = { path = "crates/rpc" }
 scheduler = { path = "crates/scheduler" }
-search = { path = "crates/search" }
 settings = { path = "crates/settings" }
 settings_content = { path = "crates/settings_content" }
 settings_json = { path = "crates/settings_json" }
 settings_macros = { path = "crates/settings_macros" }
-snippet = { path = "crates/snippet" }
 sum_tree = { path = "crates/sum_tree" }
 syntax_theme = { path = "crates/syntax_theme" }
 text = { path = "crates/text" }
@@ -216,14 +190,13 @@ fancy-regex = "0.17.0"
 futures = "0.3.32"
 futures-concurrency = "7.7.1"
 futures-lite = "1.13"
-git2 = { version = "0.20.1", default-features = false, features = ["vendored-libgit2"] }
 globset = "0.4"
 heapless = "0.9.2"
 heck = "0.5"
 hdrhistogram = "7"
-html5ever = "0.27.0"
 http = "1.1"
 http-body = "1.0"
+html5ever = "0.27.0"
 ignore = "0.4.22"
 image = { version = "0.25.1", default-features = false, features = [
     "gif",
@@ -237,7 +210,6 @@ itertools = "0.14.0"
 libc = "0.2"
 linkify = "0.10.0"
 log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
-lsp-types = { git = "https://github.com/zed-industries/lsp-types", rev = "f4dfa89a21ca35cd929b70354b1583fabae325f8" }
 mach2 = "0.5"
 markup5ever_rcdom = "0.3.0"
 metal = "0.33"
@@ -255,9 +227,8 @@ proc-macro2 = "1.0.93"
 # replace this with main when #635 is merged
 proptest = { git = "https://github.com/proptest-rs/proptest", rev = "3dca198a8fef1b32e3a66f1e1897c955b4dc5b5b", features = ["attr-macro"] }
 proptest-derive = "0.8.0"
-prost = "0.9"
-pollster = "0.4.0"
 pulldown-cmark = { version = "0.13.0", default-features = false }
+pollster = "0.4.0"
 quote = "1.0.9"
 rand = "0.9"
 rayon = "1.8"
@@ -301,24 +272,9 @@ time = { version = "0.3", features = [
 ] }
 toml = "0.8"
 tree-sitter = "0.26.8"
-tree-sitter-bash = "0.25.1"
-tree-sitter-c = "0.24.1"
-tree-sitter-cpp = { git = "https://github.com/tree-sitter/tree-sitter-cpp", rev = "5cb9b693cfd7bfacab1d9ff4acac1a4150700609" }
-tree-sitter-css = "0.23"
-tree-sitter-diff = "0.1.0"
-tree-sitter-gitcommit = { git = "https://github.com/zed-industries/tree-sitter-git-commit", rev = "88309716a69dd13ab83443721ba6e0b491d37ee9" }
-tree-sitter-go = "0.25"
-tree-sitter-go-mod = { git = "https://github.com/camdencheek/tree-sitter-go-mod", rev = "2e886870578eeba1927a2dc4bd2e2b3f598c5f9a", package = "tree-sitter-gomod" }
-tree-sitter-gowork = { git = "https://github.com/zed-industries/tree-sitter-go-work", rev = "acb0617bf7f4fda02c6217676cc64acb89536dc7" }
-tree-sitter-html = "0.23"
-tree-sitter-jsdoc = "0.23"
 tree-sitter-json = "0.24"
 tree-sitter-md = { git = "https://github.com/tree-sitter-grammars/tree-sitter-markdown", rev = "9a23c1a96c0513d8fc6520972beedd419a973539" }
-tree-sitter-python = "0.25"
 tree-sitter-regex = "0.24"
-tree-sitter-rust = "0.24.2"
-tree-sitter-typescript = { git = "https://github.com/zed-industries/tree-sitter-typescript", rev = "e2c53597d6a5d9cf7bbe8dccde576fe1e46c5899" } # https://github.com/tree-sitter/tree-sitter-typescript/pull/347
-tree-sitter-yaml = { git = "https://github.com/zed-industries/tree-sitter-yaml", rev = "baff0b51c64ef6a1fb1f8390f3ad6015b83ec13a" }
 tracing = "0.1.40"
 unicase = "2.6"
 unicode-script = "0.5.7"
@@ -435,7 +391,6 @@ file_icons = { codegen-units = 1 }
 menu = { codegen-units = 1 }
 paths = { codegen-units = 1 }
 refineable = { codegen-units = 1 }
-snippet = { codegen-units = 1 }
 time_format = { codegen-units = 1 }
 ui_input = { codegen-units = 1 }
 zen_actions = { codegen-units = 1 }
@@ -501,9 +456,7 @@ nonminimal_bool = "allow"
 ignored = [
     "bindgen",
     "cbindgen",
-    "prost_build",
     "serde",
-    "component",
     "documented",
     "sea-orm-macros",
 ]

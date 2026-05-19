@@ -8,14 +8,8 @@ use util::RangeExt;
 
 use crate::BufferRow;
 
-/// An range of rows, exclusive as [`lsp::Range`] and
-/// <https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#range>
-/// denote.
-///
-/// Represents an area in a text editor, adjacent to other ones.
+/// An exclusive range of rows adjacent to other chunks in the same buffer.
 /// Together, chunks form entire document at a particular version [`Global`].
-/// Each chunk is queried for inlays as `(start_row, 0)..(end_exclusive, 0)` via
-/// <https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#inlayHintParams>
 #[derive(Clone)]
 pub struct RowChunks {
     chunks: Arc<[RowChunk]>,
@@ -76,7 +70,6 @@ impl RowChunks {
         let row_ranges = ranges
             .iter()
             // Be lenient and yield multiple chunks if they "touch" the exclusive part of the range.
-            // This will result in LSP hints [re-]queried for more ranges, but also more hints already visible when scrolling around.
             .map(|point_range| point_range.start.row..point_range.end.row + 1)
             .collect::<Vec<_>>();
         self.chunks

@@ -21,7 +21,6 @@ default = ["font-kit", "wayland", "x11", "windows-manifest"]
 test-support = [
     "leak-detection",
     "collections/test-support",
-    "http_client/test-support",
     "wayland",
     "x11",
     "proptest",
@@ -58,7 +57,6 @@ futures.workspace = true
 futures-concurrency.workspace = true
 gpui_macros.workspace = true
 gpui_shared_string.workspace = true
-http_client.workspace = true
 image.workspace = true
 inventory.workspace = true
 itertools.workspace = true
@@ -101,7 +99,6 @@ lyon = "1.0"
 pin-project = "1.1.10"
 spin = "0.10.0"
 pollster.workspace = true
-url.workspace = true
 uuid.workspace = true
 web-time.workspace = true
 

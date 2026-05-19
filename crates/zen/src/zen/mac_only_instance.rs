@@ -15,7 +15,7 @@ fn address() -> SocketAddr {
 }
 
 fn instance_handshake() -> &'static str {
-    "Zen Dev Instance Running"
+    "Zen Instance Running"
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

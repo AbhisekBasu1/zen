@@ -70,8 +70,8 @@ impl TextSystem {
             font_runs_pool: Mutex::default(),
             fallback_font_stack: smallvec![
                 // TODO: Remove this when Linux have implemented setting fallbacks.
-                font(".ZenMono"),
-                font(".ZenSans"),
+                font(".SystemMonoFont"),
+                font(".SystemUIFont"),
                 font("Helvetica"),
                 font("Segoe UI"),     // Windows
                 font("Ubuntu"),       // Gnome (Ubuntu)
@@ -93,6 +93,7 @@ impl TextSystem {
                 .map(|font| font.family.to_string()),
         );
         names.push(".SystemUIFont".to_string());
+        names.push(".SystemMonoFont".to_string());
         names.sort();
         names.dedup();
         names
@@ -1161,14 +1162,20 @@ impl FontMetrics {
 /// Maps well-known virtual font names to their concrete equivalents.
 #[allow(unused)]
 pub fn font_name_with_fallbacks<'a>(name: &'a str, system: &'a str) -> &'a str {
-    // Note: the "Zed Plex" fonts were deprecated as we are not allowed to use "Plex"
-    // in a derived font name. They are essentially indistinguishable from IBM Plex/Lilex,
-    // and so retained here for backward compatibility.
     match name {
         ".SystemUIFont" => system,
-        ".ZenSans" | ".ZedSans" | "Zed Plex Sans" => "IBM Plex Sans",
-        ".ZenMono" | ".ZedMono" | "Zed Plex Mono" => "Lilex",
+        ".ZenSans" | ".ZedSans" | "Zed Plex Sans" => system,
+        ".SystemMonoFont" | ".ZenMono" | ".ZedMono" | "Zed Plex Mono" => {
+            system_monospace_font_name(system)
+        }
         _ => name,
+    }
+}
+
+fn system_monospace_font_name(system: &str) -> &'static str {
+    match system {
+        ".AppleSystemUIFont" => "Menlo",
+        _ => "monospace",
     }
 }
 
@@ -1178,15 +1185,15 @@ pub fn font_name_with_fallbacks_shared<'a>(
     name: &'a SharedString,
     system: &'a SharedString,
 ) -> &'a SharedString {
-    // Note: the "Zed Plex" fonts were deprecated as we are not allowed to use "Plex"
-    // in a derived font name. They are essentially indistinguishable from IBM Plex/Lilex,
-    // and so retained here for backward compatibility.
     match name.as_str() {
         ".SystemUIFont" => system,
-        ".ZenSans" | ".ZedSans" | "Zed Plex Sans" => {
-            const { &SharedString::new_static("IBM Plex Sans") }
+        ".ZenSans" | ".ZedSans" | "Zed Plex Sans" => system,
+        ".SystemMonoFont" | ".ZenMono" | ".ZedMono" | "Zed Plex Mono" => {
+            match system_monospace_font_name(system.as_ref()) {
+                "Menlo" => const { &SharedString::new_static("Menlo") },
+                _ => const { &SharedString::new_static("monospace") },
+            }
         }
-        ".ZenMono" | ".ZedMono" | "Zed Plex Mono" => const { &SharedString::new_static("Lilex") },
         _ => name,
     }
 }

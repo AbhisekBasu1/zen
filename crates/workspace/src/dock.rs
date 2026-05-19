@@ -1,10 +1,7 @@
 use crate::focus_follows_mouse::FocusFollowsMouse as _;
-use crate::persistence::model::DockData;
 use crate::{DraggedDock, Event, FocusFollowsMouse, ModalLayer, Pane, WorkspaceSettings};
 use crate::{Workspace, status_bar::StatusItemView};
 use anyhow::Context as _;
-use client::proto;
-
 use gpui::{
     Action, Anchor, AnyView, App, Axis, Context, Entity, EntityId, EventEmitter, FocusHandle,
     Focusable, IntoElement, KeyContext, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement,
@@ -28,8 +25,6 @@ pub enum PanelEvent {
     Activate,
     Close,
 }
-
-pub use proto::PanelId;
 
 pub trait Panel: Focusable + EventEmitter<PanelEvent> + Render + Sized {
     fn persistent_name() -> &'static str;
@@ -75,9 +70,6 @@ pub trait Panel: Focusable + EventEmitter<PanelEvent> + Render + Sized {
     fn pane(&self) -> Option<Entity<Pane>> {
         None
     }
-    fn remote_id() -> Option<proto::PanelId> {
-        None
-    }
     fn activation_priority(&self) -> u32;
     fn enabled(&self, _cx: &App) -> bool {
         true
@@ -97,7 +89,6 @@ pub trait PanelHandle: Send + Sync {
     fn is_zoomed(&self, window: &Window, cx: &App) -> bool;
     fn set_zoomed(&self, zoomed: bool, window: &mut Window, cx: &mut App);
     fn set_active(&self, active: bool, window: &mut Window, cx: &mut App);
-    fn remote_id(&self) -> Option<proto::PanelId>;
     fn pane(&self, cx: &App) -> Option<Entity<Pane>>;
     fn default_size(&self, window: &Window, cx: &App) -> Pixels;
     fn min_size(&self, window: &Window, cx: &App) -> Option<Pixels>;
@@ -174,10 +165,6 @@ where
 
     fn pane(&self, cx: &App) -> Option<Entity<Pane>> {
         self.read(cx).pane()
-    }
-
-    fn remote_id(&self) -> Option<PanelId> {
-        T::remote_id()
     }
 
     fn default_size(&self, window: &Window, cx: &App) -> Pixels {
@@ -261,7 +248,6 @@ pub struct Dock {
     active_panel_index: Option<usize>,
     focus_handle: FocusHandle,
     focus_follows_mouse: FocusFollowsMouse,
-    pub(crate) serialized_dock: Option<DockData>,
     zoom_layer_open: bool,
     modal_layer: Entity<ModalLayer>,
     _subscriptions: [Subscription; 2],
@@ -394,7 +380,6 @@ impl Dock {
                 focus_handle: focus_handle.clone(),
                 focus_follows_mouse: WorkspaceSettings::get_global(cx).focus_follows_mouse,
                 _subscriptions: [focus_subscription, zoom_subscription],
-                serialized_dock: None,
                 zoom_layer_open: false,
                 modal_layer,
             }
@@ -418,7 +403,6 @@ impl Dock {
                 }
                 cx.emit(Event::ZoomChanged);
                 workspace.dismiss_zoomed_items_to_reveal(Some(position), window, cx);
-                workspace.update_active_view_for_followers(window, cx)
             }
         })
         .detach();
@@ -472,12 +456,6 @@ impl Dock {
         self.panel_entries
             .iter()
             .position(|entry| entry.panel.persistent_name() == ui_name)
-    }
-
-    pub fn panel_index_for_proto_id(&self, panel_id: PanelId) -> Option<usize> {
-        self.panel_entries
-            .iter()
-            .position(|entry| entry.panel.remote_id() == Some(panel_id))
     }
 
     pub fn panel_for_id(&self, panel_id: EntityId) -> Option<&Arc<dyn PanelHandle>> {
@@ -536,11 +514,6 @@ impl Dock {
             }
         }
 
-        self.workspace
-            .update(cx, |workspace, cx| {
-                workspace.serialize_workspace(window, cx);
-            })
-            .ok();
         cx.notify();
     }
 
@@ -621,12 +594,6 @@ impl Dock {
                             new_dock.activate_panel(index, window, cx);
                         }
                     });
-
-                    workspace
-                        .update(cx, |workspace, cx| {
-                            workspace.serialize_workspace(window, cx);
-                        })
-                        .ok();
                 }
             }),
             cx.subscribe_in(
@@ -717,8 +684,6 @@ impl Dock {
             },
         );
 
-        self.restore_state(window, cx);
-
         if panel.read(cx).starts_open(window, cx) {
             self.activate_panel(index, window, cx);
             self.set_open(true, window, cx);
@@ -726,25 +691,6 @@ impl Dock {
 
         cx.notify();
         index
-    }
-
-    pub fn restore_state(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if let Some(serialized) = self.serialized_dock.clone() {
-            if let Some(active_panel) = serialized.active_panel.filter(|_| serialized.visible)
-                && let Some(idx) = self.panel_index_for_persistent_name(active_panel.as_str(), cx)
-            {
-                self.activate_panel(idx, window, cx);
-            }
-
-            if serialized.zoom
-                && let Some(panel) = self.active_panel()
-            {
-                panel.set_zoomed(true, window, cx)
-            }
-            self.set_open(serialized.visible, window, cx);
-            return true;
-        }
-        false
     }
 
     pub fn remove_panel<T: Panel>(
@@ -1072,11 +1018,6 @@ impl Render for Dock {
                         cx.listener(|dock, e: &MouseUpEvent, window, cx| {
                             if e.click_count == 2 {
                                 dock.resize_active_panel(None, None, window, cx);
-                                dock.workspace
-                                    .update(cx, |workspace, cx| {
-                                        workspace.serialize_workspace(window, cx);
-                                    })
-                                    .ok();
                                 cx.stop_propagation();
                             }
                         }),

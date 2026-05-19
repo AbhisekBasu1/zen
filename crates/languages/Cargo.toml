@@ -15,7 +15,6 @@ test-support = [
 load-grammars = [
     "grammars/load-grammars",
     "tree-sitter",
-    "tree-sitter-gitcommit",
 ]
 
 [dependencies]
@@ -23,4 +22,3 @@ gpui.workspace = true
 grammars.workspace = true
 language.workspace = true
 tree-sitter = { workspace = true, optional = true }
-tree-sitter-gitcommit = { workspace = true, optional = true }

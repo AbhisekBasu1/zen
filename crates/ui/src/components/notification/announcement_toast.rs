@@ -1,9 +1,8 @@
-use crate::{ListBulletItem, prelude::*};
-use component::{Component, ComponentScope, example_group, single_example};
+use crate::prelude::*;
 use gpui::{AnyElement, ClickEvent, IntoElement, ParentElement, SharedString};
 use smallvec::SmallVec;
 
-#[derive(IntoElement, RegisterComponent)]
+#[derive(IntoElement)]
 pub struct AnnouncementToast {
     illustration: Option<AnyElement>,
     heading: Option<SharedString>,
@@ -152,47 +151,5 @@ impl RenderOnce for AnnouncementToast {
                         .on_click(self.dismiss_on_click),
                 ),
             )
-    }
-}
-
-impl Component for AnnouncementToast {
-    fn scope() -> ComponentScope {
-        ComponentScope::Notification
-    }
-
-    fn description() -> Option<&'static str> {
-        Some("A special toast for announcing new and exciting features.")
-    }
-
-    fn preview(_window: &mut Window, _cx: &mut App) -> Option<AnyElement> {
-        let examples = vec![single_example(
-            "Basic",
-            div()
-                .w_80()
-                .child(
-                    AnnouncementToast::new()
-                        .heading("Introducing Focused Markdown Review")
-                        .description("Review repository context documents with less surface area.")
-                        .bullet_item(ListBulletItem::new(
-                            "Preview Markdown while keeping related code nearby",
-                        ))
-                        .bullet_item(ListBulletItem::new(
-                            "Keep agent instructions, specs, and runbooks easy to scan",
-                        ))
-                        .bullet_item(ListBulletItem::new(
-                            "Use search and Git context without leaving the workspace",
-                        ))
-                        .primary_action_label("Try Now")
-                        .secondary_action_label("Learn More"),
-                )
-                .into_any_element(),
-        )];
-
-        Some(
-            v_flex()
-                .gap_6()
-                .child(example_group(examples).vertical())
-                .into_any_element(),
-        )
     }
 }

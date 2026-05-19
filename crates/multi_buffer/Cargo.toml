@@ -14,7 +14,6 @@ doctest = false
 
 [features]
 test-support = [
-    "buffer_diff/test-support",
     "gpui/test-support",
     "language/test-support",
     "text/test-support",
@@ -27,7 +26,6 @@ clock.workspace = true
 collections.workspace = true
 ctor.workspace = true
 futures-lite.workspace = true
-buffer_diff.workspace = true
 gpui.workspace = true
 itertools.workspace = true
 language.workspace = true

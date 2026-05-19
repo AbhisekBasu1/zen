@@ -54,7 +54,7 @@ Build a debug macOS app bundle:
 The debug app is produced at:
 
 ```text
-target/aarch64-apple-darwin/debug/bundle/osx/Zen Dev.app
+target/aarch64-apple-darwin/debug/bundle/osx/Zen.app
 ```
 
 Run a fast compile check:

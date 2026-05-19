@@ -1,41 +1,33 @@
 // Disable command line from opening on release mode
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod release_channel;
+mod app_metadata;
 mod zen;
 
 use anyhow::{Context as _, Result};
-use client::{Client, UserStore};
 use collections::HashMap;
 use editor::Editor;
 use fs::{Fs, RealFs};
 use futures::StreamExt;
-use git::GitHostingProviderRegistry;
 use gpui::{App, AppContext, Application, AsyncApp, QuitMode, Task, UpdateGlobal as _};
 use gpui_platform;
 
-use crate::release_channel::{AppCommitSha, AppVersion, ReleaseChannel};
+use crate::app_metadata::{AppCommitSha, AppVersion};
 use assets::Assets;
-use http_client::BlockedHttpClient;
 use language::LanguageRegistry;
-use parking_lot::Mutex;
 use project::trusted_worktrees;
 use settings::{Settings, SettingsStore};
 use std::{
     env,
     io::{self, IsTerminal},
-    path::Path,
+    path::{Path, PathBuf},
     process,
     sync::{Arc, LazyLock, OnceLock},
     time::Instant,
 };
 use theme::{ActiveTheme, GlobalTheme};
 use util::ResultExt;
-use uuid::Uuid;
-use workspace::{
-    AppState, MultiWorkspace, SerializedWorkspaceLocation, Toast, WorkspaceSettings,
-    WorkspaceStore, notifications::NotificationId, restore_multiworkspace,
-};
+use workspace::{AppState, WorkspaceSettings, WorkspaceStore};
 use zen::{
     OpenListener, OpenRequest, RawOpenRequest, app_menus, build_window_options,
     derive_paths_with_position, initialize_workspace, open_paths_with_positions,
@@ -151,6 +143,69 @@ fn fail_to_open_window(e: anyhow::Error, _cx: &mut App) {
 static STARTUP_TIME: OnceLock<Instant> = OnceLock::new();
 const FORCE_CLI_MODE_ENV_VAR_NAME: &str = "ZEN_FORCE_CLI_MODE";
 
+fn collect_theme_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+    let entries = std::fs::read_dir(dir)
+        .with_context(|| format!("reading themes directory {}", dir.display()))?;
+
+    for entry in entries {
+        let entry = entry.with_context(|| format!("reading theme entry in {}", dir.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("reading file type for {}", path.display()))?;
+
+        if file_type.is_dir() {
+            collect_theme_files(&path, files)?;
+        } else if file_type.is_file()
+            && path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+        {
+            files.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn load_user_themes(cx: &mut App) {
+    let themes_dir = paths::themes_dir();
+    let mut theme_files = Vec::new();
+
+    match collect_theme_files(themes_dir, &mut theme_files) {
+        Ok(()) => {}
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == io::ErrorKind::NotFound) => {}
+        Err(error) => {
+            log::error!("failed to discover user themes: {error:#}");
+            return;
+        }
+    }
+
+    if theme_files.is_empty() {
+        return;
+    }
+
+    theme_files.sort();
+
+    let registry = theme::ThemeRegistry::global(cx);
+    for theme_file in theme_files {
+        let Some(bytes) = std::fs::read(&theme_file)
+            .with_context(|| format!("reading user theme {}", theme_file.display()))
+            .log_err()
+        else {
+            continue;
+        };
+
+        theme_settings::load_user_theme(&registry, &bytes)
+            .with_context(|| format!("loading user theme {}", theme_file.display()))
+            .log_err();
+    }
+}
+
 fn main() {
     STARTUP_TIME.get_or_init(|| Instant::now());
 
@@ -249,13 +304,9 @@ fn main() {
     let app =
         Application::with_platform(gpui_platform::current_platform(false)).with_assets(Assets);
 
-    let session_id = Uuid::new_v4().to_string();
-
     let (open_listener, mut open_rx) = OpenListener::new();
 
-    let failed_single_instance_check = if zen_stateless()
-        || *crate::release_channel::RELEASE_CHANNEL == ReleaseChannel::Dev
-    {
+    let failed_single_instance_check = if zen_stateless() {
         false
     } else {
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]
@@ -279,20 +330,7 @@ fn main() {
         return;
     }
 
-    let git_hosting_provider_registry = Arc::new(GitHostingProviderRegistry::new());
-    let git_binary_path =
-        if cfg!(target_os = "macos") && option_env!("ZEN_BUNDLE").as_deref() == Some("true") {
-            app.path_for_auxiliary_executable("git")
-                .context("could not find git binary path")
-                .log_err()
-        } else {
-            None
-        };
-    if let Some(git_binary_path) = &git_binary_path {
-        log::info!("Using git binary path: {:?}", git_binary_path);
-    }
-
-    let fs = Arc::new(RealFs::new(git_binary_path, app.background_executor()));
+    let fs = Arc::new(RealFs::new(app.background_executor()));
     app.on_open_urls({
         let open_listener = open_listener.clone();
         move |urls| {
@@ -317,67 +355,46 @@ fn main() {
     });
 
     app.run(move |cx| {
-        trusted_worktrees::init(HashMap::default(), cx);
+        trusted_worktrees::init(Default::default(), cx);
         menu::init();
         zen_actions::init();
 
-        crate::release_channel::init(app_version, cx);
         settings::init(cx);
         zen::load_default_keymap(cx);
 
-        cx.set_http_client(Arc::new(BlockedHttpClient::new()));
-
         <dyn Fs>::set_global(fs.clone(), cx);
-
-        GitHostingProviderRegistry::set_global(git_hosting_provider_registry, cx);
 
         OpenListener::set_global(cx, open_listener.clone());
 
-        let client = Client::production(cx);
         let languages = LanguageRegistry::new(cx.background_executor().clone());
         let languages = Arc::new(languages);
         ui::on_new_scrollbars::<SettingsStore>(cx);
 
         languages::init(languages.clone(), cx);
         markdown_preview::init(cx);
-        let user_store = cx.new(|cx| UserStore::new(client.clone(), cx));
         let workspace_store = cx.new(|_| WorkspaceStore::new());
 
         zen::init(cx);
-        project::Project::init(&client, cx);
+        project::Project::init(cx);
         let app_state = Arc::new(AppState {
             languages,
-            client: client.clone(),
-            user_store,
             fs: fs.clone(),
             build_window_options,
             workspace_store,
-            session_id: Arc::from(session_id),
         });
         AppState::set_global(app_state.clone(), cx);
 
-        theme_settings::init(theme::LoadThemes::JustBase, cx);
-        load_embedded_fonts(cx);
+        theme_settings::init(theme::LoadThemes::All(Box::new(Assets)), cx);
+        load_user_themes(cx);
+        theme_settings::reload_theme(cx);
 
         editor::init(cx);
 
-        workspace::init(app_state.clone(), cx);
+        workspace::init(cx);
 
         go_to_line::init(cx);
         file_finder::init(cx);
         project_panel::init(cx);
-        search::init(cx);
-        cx.set_global(workspace::PaneSearchBarCallbacks {
-            setup_search_bar: |languages, toolbar, window, cx| {
-                let search_bar = cx.new(|cx| search::BufferSearchBar::new(languages, window, cx));
-                toolbar.update(cx, |toolbar, cx| {
-                    toolbar.add_item(search_bar, window, cx);
-                });
-            },
-            wrap_div_with_search_actions: search::buffer_search::register_pane_search_actions,
-        });
-        git_ui::init(cx);
-        git_graph::init(cx);
         #[cfg(target_os = "windows")]
         etw_tracing::init(cx);
 
@@ -485,9 +502,6 @@ fn main() {
 fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut App) {
     if let Some(kind) = request.kind {
         match kind {
-            OpenRequestKind::Extension { extension_id } => {
-                log::info!("ignoring extension URL for disabled extension UI: {extension_id}");
-            }
             OpenRequestKind::DockMenuAction { index } => {
                 cx.perform_dock_menu_action(index);
             }
@@ -502,51 +516,6 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                         "ignoring settings URL for disabled settings editor: {setting_path}"
                     );
                 }
-            }
-            OpenRequestKind::GitCommit { sha } => {
-                cx.spawn(async move |cx| {
-                    let paths_with_position =
-                        derive_paths_with_position(app_state.fs.as_ref(), request.open_paths).await;
-                    let (workspace, _results) = open_paths_with_positions(
-                        &paths_with_position,
-                        &[],
-                        false,
-                        app_state,
-                        workspace::OpenOptions::default(),
-                        cx,
-                    )
-                    .await?;
-
-                    workspace
-                        .update(cx, |multi_workspace, window, cx| {
-                            multi_workspace
-                                .workspace()
-                                .clone()
-                                .update(cx, |workspace, cx| {
-                                    let Some(repo) =
-                                        workspace.project().read(cx).active_repository(cx)
-                                    else {
-                                        log::error!("no active repository found for commit view");
-                                        return Err(anyhow::anyhow!("no active repository found"));
-                                    };
-
-                                    git_ui::commit_view::CommitView::open(
-                                        sha,
-                                        repo.downgrade(),
-                                        workspace.weak_handle(),
-                                        None,
-                                        None,
-                                        window,
-                                        cx,
-                                    );
-                                    Ok(())
-                                })
-                        })
-                        .log_err();
-
-                    anyhow::Ok(())
-                })
-                .detach_and_log_err(cx);
             }
         }
 
@@ -591,136 +560,19 @@ pub(crate) async fn restore_or_create_workspace(
     app_state: Arc<AppState>,
     cx: &mut AsyncApp,
 ) -> Result<()> {
-    if let Some(multi_workspaces) = restorable_workspaces(cx, &app_state).await {
-        let mut error_count = 0;
-        for multi_workspace in multi_workspaces {
-            let result = match &multi_workspace.active_workspace.location {
-                SerializedWorkspaceLocation::Local => {
-                    restore_multiworkspace(multi_workspace, app_state.clone(), cx)
-                        .await
-                        .map(|_| ())
-                }
-                SerializedWorkspaceLocation::Remote(_) => {
-                    log::info!("skipping remote workspace restore in stripped build");
-                    Ok(())
-                }
-            };
-
-            if let Err(error) = result {
-                log::error!("Failed to restore workspace: {error:#}");
-                error_count += 1;
-            }
-        }
-
-        if error_count > 0 {
-            let message = if error_count == 1 {
-                "Failed to restore 1 workspace. Check logs for details.".to_string()
-            } else {
-                format!(
-                    "Failed to restore {} workspaces. Check logs for details.",
-                    error_count
-                )
-            };
-
-            // Try to find an active workspace to show the toast
-            let toast_shown = cx.update(|cx| {
-                if let Some(window) = cx.active_window()
-                    && let Some(multi_workspace) = window.downcast::<MultiWorkspace>()
-                {
-                    multi_workspace
-                        .update(cx, |multi_workspace, _, cx| {
-                            multi_workspace.workspace().update(cx, |workspace, cx| {
-                                workspace.show_toast(
-                                    Toast::new(NotificationId::unique::<()>(), message.clone()),
-                                    cx,
-                                )
-                            });
-                        })
-                        .ok();
-                    return true;
-                }
-                false
-            });
-
-            // If we couldn't show a toast (no windows opened successfully),
-            // open a fallback empty workspace and show the error there
-            if !toast_shown {
-                log::error!("All workspace restorations failed. Opening fallback empty workspace.");
-                cx.update(|cx| {
-                    workspace::open_new(
-                        Default::default(),
-                        app_state.clone(),
-                        cx,
-                        |workspace, _window, cx| {
-                            workspace.show_toast(
-                                Toast::new(NotificationId::unique::<()>(), message),
-                                cx,
-                            );
-                        },
-                    )
-                })
-                .await?;
-            }
-        }
-
-        // If the user cancelled a failed remote connection at startup,
-        // open_remote_project returns Ok but removes the window, so error_count
-        // stays 0 and the toast fallback above does not trigger. Without this
-        // check, Zen would exit silently.
-        if cx.update(|cx| cx.windows().is_empty()) {
-            cx.update(|cx| {
-                workspace::open_new(
-                    Default::default(),
-                    app_state.clone(),
-                    cx,
-                    |workspace, window, cx| {
-                        let restore_on_startup =
-                            WorkspaceSettings::get_global(cx).restore_on_startup;
-                        match restore_on_startup {
-                            workspace::RestoreOnStartupBehavior::EmptyTab => {
-                                Editor::new_file(workspace, &Default::default(), window, cx);
-                            }
-                            _ => {
-                                // If there was nothing to restore, keep the empty workspace so
-                                // the welcome page can show recent projects instead of a blank tab.
-                            }
-                        }
-                    },
-                )
-            })
-            .await?;
-        }
-    } else {
-        cx.update(|cx| {
-            workspace::open_new(
-                Default::default(),
-                app_state,
-                cx,
-                |workspace, window, cx| {
-                    let restore_on_startup = WorkspaceSettings::get_global(cx).restore_on_startup;
-                    match restore_on_startup {
-                        workspace::RestoreOnStartupBehavior::EmptyTab => {
-                            Editor::new_file(workspace, &Default::default(), window, cx);
-                        }
-                        _ => {
-                            // If there was nothing to restore, keep the empty workspace so
-                            // the welcome page can show recent projects instead of a blank tab.
-                        }
-                    }
-                },
-            )
-        })
-        .await?;
-    }
+    cx.update(|cx| {
+        workspace::open_new(
+            Default::default(),
+            app_state,
+            cx,
+            |workspace, window, cx| {
+                Editor::new_file(workspace, &Default::default(), window, cx);
+            },
+        )
+    })
+    .await?;
 
     Ok(())
-}
-
-async fn restorable_workspaces(
-    _cx: &mut AsyncApp,
-    _app_state: &Arc<AppState>,
-) -> Option<Vec<workspace::SerializedMultiWorkspace>> {
-    None
 }
 
 fn init_paths() -> HashMap<io::ErrorKind, Vec<&'static Path>> {
@@ -831,12 +683,6 @@ impl Args {
                 "--user-data-dir" => {
                     parsed.user_data_dir = args.next();
                 }
-                "--dev-container" => {
-                    log::info!("ignoring --dev-container in local-only Zen build");
-                }
-                "--dev-server-token" => {
-                    args.next();
-                }
                 "--dump-all-actions" => {
                     log::info!("ignoring --dump-all-actions in local-only Zen build");
                 }
@@ -902,30 +748,6 @@ fn parse_url_arg(arg: &str, _cx: &App) -> String {
             }
         }
     }
-}
-
-fn load_embedded_fonts(cx: &App) {
-    let asset_source = cx.asset_source();
-    let font_paths = asset_source.list("fonts").unwrap();
-    let embedded_fonts = Mutex::new(Vec::new());
-    let executor = cx.background_executor();
-
-    cx.foreground_executor().block_on(executor.scoped(|scope| {
-        for font_path in &font_paths {
-            if !font_path.ends_with(".ttf") {
-                continue;
-            }
-
-            scope.spawn(async {
-                let font_bytes = asset_source.load(font_path).unwrap().unwrap();
-                embedded_fonts.lock().push(font_bytes);
-            });
-        }
-    }));
-
-    cx.text_system()
-        .add_fonts(embedded_fonts.into_inner())
-        .unwrap();
 }
 
 #[cfg(target_os = "windows")]

@@ -16,7 +16,7 @@ doctest = true
 
 [features]
 archive = ["async_zip", "tempfile"]
-test-support = ["archive", "git2", "rand", "util_macros"]
+test-support = ["archive", "rand", "util_macros"]
 
 [dependencies]
 anyhow.workspace = true
@@ -46,7 +46,6 @@ gpui_util.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 smol.workspace = true
-git2 = { workspace = true, optional = true }
 async-fs.workspace = true
 walkdir.workspace = true
 dirs.workspace = true

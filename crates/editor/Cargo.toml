@@ -22,39 +22,26 @@ test-support = [
     "theme/test-support",
     "util/test-support",
     "workspace/test-support",
-    "tree-sitter-c",
-    "tree-sitter-rust",
-    "tree-sitter-typescript",
-    "tree-sitter-html",
     "proptest",
     "unindent",
 ]
 
 [dependencies]
-aho-corasick.workspace = true
 anyhow.workspace = true
 assets.workspace = true
-client.workspace = true
 clock.workspace = true
 collections.workspace = true
-convert_case.workspace = true
-buffer_diff.workspace = true
 file_icons.workspace = true
 futures.workspace = true
 futures-lite.workspace = true
-fuzzy.workspace = true
-fs.workspace = true
-git.workspace = true
 gpui.workspace = true
 itertools.workspace = true
 language.workspace = true
 linkify.workspace = true
 log.workspace = true
-lsp.workspace = true
 markdown.workspace = true
 menu.workspace = true
 multi_buffer.workspace = true
-ordered-float.workspace = true
 parking_lot.workspace = true
 paths.workspace = true
 project.workspace = true
@@ -62,34 +49,24 @@ proptest = { workspace = true, optional = true }
 proptest-derive = { workspace = true, optional = true }
 rand.workspace = true
 regex.workspace = true
-rpc.workspace = true
 rope.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 settings.workspace = true
 smallvec.workspace = true
-snippet.workspace = true
 sum_tree.workspace = true
 text.workspace = true
 time.workspace = true
 theme.workspace = true
 theme_settings.workspace = true
-tree-sitter-c = { workspace = true, optional = true }
-tree-sitter-html = { workspace = true, optional = true }
-tree-sitter-rust = { workspace = true, optional = true }
-tree-sitter-typescript = { workspace = true, optional = true }
-tree-sitter-python = { workspace = true, optional = true }
 ztracing.workspace = true
 tracing.workspace = true
 unicode-segmentation.workspace = true
-unicode-script.workspace = true
 unindent = { workspace = true, optional = true }
 ui.workspace = true
 ui_input.workspace = true
-url.workspace = true
 util.workspace = true
-uuid.workspace = true
 workspace.workspace = true
 zen_actions.workspace = true
 zlog.workspace = true

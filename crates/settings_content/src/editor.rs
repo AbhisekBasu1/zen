@@ -4,9 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use settings_macros::{MergeFrom, with_fallible_options};
 
-use crate::{
-    DelayMs, DiagnosticSeverityContent, ShowScrollbar, serialize_f32_with_two_decimal_places,
-};
+use crate::{DelayMs, ShowScrollbar, serialize_f32_with_two_decimal_places};
 
 #[with_fallible_options]
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]
@@ -24,10 +22,6 @@ pub struct EditorSettingsContent {
     ///
     /// Default: on_typing_and_movement
     pub hide_mouse: Option<HideMouseMode>,
-    /// Determines how snippets are sorted relative to other completion items.
-    ///
-    /// Default: inline
-    pub snippet_sort_order: Option<SnippetSortOrder>,
     /// How to highlight the current line in the editor.
     ///
     /// Default: all
@@ -40,11 +34,6 @@ pub struct EditorSettingsContent {
     ///
     /// Default: true
     pub rounded_selection: Option<bool>,
-    /// The debounce delay before querying highlights from the language
-    /// server based on the current cursor location.
-    ///
-    /// Default: 75
-    pub lsp_highlight_debounce: Option<DelayMs>,
     /// Toolbar related settings
     pub toolbar: Option<ToolbarContent>,
     /// Scrollbar related settings
@@ -97,11 +86,6 @@ pub struct EditorSettingsContent {
     ///
     /// Default: "disabled"
     pub relative_line_numbers: Option<RelativeLineNumbers>,
-    /// When to populate a new search's query based on the text under the cursor.
-    ///
-    /// Default: always
-    pub seed_search_query_from_cursor: Option<SeedQuerySetting>,
-    pub use_smartcase_search: Option<bool>,
     /// Determines the modifier to be used to add multiple cursors with the mouse. The open hover link mouse gestures will adapt such that it do not conflict with the multicursor modifier.
     ///
     /// Default: alt
@@ -133,15 +117,6 @@ pub struct EditorSettingsContent {
     ///
     /// Default: select
     pub double_click_in_multibuffer: Option<DoubleClickInMultibuffer>,
-    /// Whether the editor search results will loop
-    ///
-    /// Default: true
-    pub search_wrap: Option<bool>,
-
-    /// Defaults to use when opening a new buffer and project search items.
-    ///
-    /// Default: nothing is enabled
-    pub search: Option<SearchSettingsContent>,
 
     /// The minimum APCA perceptual contrast to maintain when
     /// rendering text over highlight backgrounds in the editor.
@@ -151,70 +126,8 @@ pub struct EditorSettingsContent {
     #[schemars(range(min = 0, max = 106))]
     pub minimum_contrast_for_highlights: Option<MinimumContrast>,
 
-    /// Whether to follow-up empty go to definition responses from the language server or not.
-    /// `FindAllReferences` allows to look up references of the same symbol instead.
-    /// `None` disables the fallback.
-    ///
-    /// Default: FindAllReferences
-    pub go_to_definition_fallback: Option<GoToDefinitionFallback>,
-
-    /// How to scroll the target into view when navigating to a definition or reference
-    /// (e.g. Go to Definition, Go to Type Definition, Find All References).
-    ///
-    /// Default: center
-    pub go_to_definition_scroll_strategy: Option<GoToDefinitionScrollStrategy>,
-
-    /// Which level to use to filter out diagnostics displayed in the editor.
-    ///
-    /// Affects the editor rendering only, and does not interrupt
-    /// the functionality of diagnostics fetching and project diagnostics editor.
-    /// Which files containing diagnostic errors/warnings to mark in the tabs.
-    /// Diagnostics are only shown when file icons are also active.
-    ///
-    /// Shows all diagnostics if not specified.
-    ///
-    /// Default: warning
-    pub diagnostics_max_severity: Option<DiagnosticSeverityContent>,
-
-    /// Whether to show code action button at start of buffer line.
-    ///
-    /// Default: true
-    pub inline_code_actions: Option<bool>,
-
     /// Drag and drop related settings
     pub drag_and_drop_selection: Option<DragAndDropSelectionContent>,
-
-    /// When to show the scrollbar in the completion menu.
-    /// This setting can take four values:
-    ///
-    /// 1. Show the scrollbar if there's important information or
-    ///    follow the system's configured behavior
-    ///   "auto"
-    /// 2. Match the system's configured behavior:
-    ///    "system"
-    /// 3. Always show the scrollbar:
-    ///    "always"
-    /// 4. Never show the scrollbar:
-    ///    "never" (default)
-    pub completion_menu_scrollbar: Option<ShowScrollbar>,
-
-    /// Whether to align detail text in code completions context menus left or right.
-    ///
-    /// Default: left
-    pub completion_detail_alignment: Option<CompletionDetailAlignment>,
-
-    /// How to display diffs in the editor.
-    ///
-    /// Default: split
-    pub diff_view_style: Option<DiffViewStyle>,
-
-    /// The minimum width (in em-widths) at which the split diff view is used.
-    /// When the editor is narrower than this, the diff view automatically
-    /// switches to unified mode and switches back when the editor is wide
-    /// enough. Set to 0 to disable automatic switching.
-    ///
-    /// Default: 100
-    pub minimum_split_diff_width: Option<f32>,
 }
 
 #[derive(
@@ -235,27 +148,6 @@ pub enum RelativeLineNumbers {
     Disabled,
     Enabled,
     Wrapped,
-}
-
-#[derive(
-    Debug,
-    Default,
-    Clone,
-    Copy,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    Eq,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum CompletionDetailAlignment {
-    #[default]
-    Left,
-    Right,
 }
 
 impl RelativeLineNumbers {
@@ -285,10 +177,6 @@ pub struct ToolbarContent {
     ///
     /// Default: true
     pub selections_menu: Option<bool>,
-    /// Whether to display code action buttons in the editor toolbar.
-    ///
-    /// Default: false
-    pub code_actions: Option<bool>,
 }
 
 /// Scrollbar related settings
@@ -299,10 +187,6 @@ pub struct ScrollbarContent {
     ///
     /// Default: auto
     pub show: Option<ShowScrollbar>,
-    /// Whether to show git diff indicators in the scrollbar.
-    ///
-    /// Default: true
-    pub git_diff: Option<bool>,
     /// Whether to show buffer search result indicators in the scrollbar.
     ///
     /// Default: true
@@ -311,14 +195,6 @@ pub struct ScrollbarContent {
     ///
     /// Default: true
     pub selected_text: Option<bool>,
-    /// Whether to show selected symbol occurrences in the scrollbar.
-    ///
-    /// Default: true
-    pub selected_symbol: Option<bool>,
-    /// Which diagnostic indicators to show in the scrollbar:
-    ///
-    /// Default: all
-    pub diagnostics: Option<ScrollbarDiagnostics>,
     /// Whether to show cursor positions in the scrollbar.
     ///
     /// Default: true
@@ -364,10 +240,6 @@ pub struct GutterContent {
     ///
     /// Default: 4
     pub min_line_number_digits: Option<usize>,
-    /// Whether to show bookmarks in the gutter.
-    ///
-    /// Default: true
-    pub bookmarks: Option<bool>,
     /// Whether to show fold buttons in the gutter.
     ///
     /// Default: true
@@ -399,30 +271,6 @@ pub enum CurrentLineHighlight {
     All,
 }
 
-/// When to populate a new search's query based on the text under the cursor.
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    JsonSchema,
-    MergeFrom,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum SeedQuerySetting {
-    /// Always populate the search query with the word under the cursor.
-    Always,
-    /// Only populate the search query when there is text selected.
-    Selection,
-    /// Never populate the search query
-    Never,
-}
-
 /// What to do when multibuffer is double clicked in some of its excerpts (parts of singleton buffers).
 #[derive(
     Default,
@@ -446,36 +294,6 @@ pub enum DoubleClickInMultibuffer {
     /// Open the excerpt clicked as a new buffer in the new tab, if no `alt` modifier was pressed during double click.
     /// Otherwise, behave as a regular buffer and select the whole word.
     Open,
-}
-
-/// Which diagnostic indicators to show in the scrollbar.
-///
-/// Default: all
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    Eq,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "lowercase")]
-pub enum ScrollbarDiagnostics {
-    /// Show all diagnostic levels: hint, information, warnings, error.
-    All,
-    /// Show only the following diagnostic levels: information, warning, error.
-    Information,
-    /// Show only the following diagnostic levels: warning, error.
-    Warning,
-    /// Show only the following diagnostic level: error.
-    Error,
-    /// Do not show diagnostics.
-    None,
 }
 
 /// The key to use for adding multiple cursors
@@ -557,61 +375,6 @@ pub enum CursorShape {
     Hollow,
 }
 
-/// What to do when go to definition yields no results.
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    JsonSchema,
-    MergeFrom,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum GoToDefinitionFallback {
-    /// Disables the fallback.
-    None,
-    /// Looks up references of the same symbol instead.
-    #[default]
-    FindAllReferences,
-}
-
-/// How to scroll the target into view when navigating to a definition or reference.
-///
-/// Default: center
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    JsonSchema,
-    MergeFrom,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum GoToDefinitionScrollStrategy {
-    /// Vertically center the target in the viewport.
-    #[default]
-    Center,
-    /// Scroll the minimum amount needed to make the target visible.
-    Minimum,
-    /// Scroll so the target appears near the top of the viewport.
-    Top,
-    /// Preserve the cursor's vertical position within the viewport, falling
-    /// back to centering when the cursor is offscreen.
-    Preserve,
-}
-
 /// Determines when the mouse cursor should be hidden in an editor or input box.
 ///
 /// Default: on_typing_and_movement
@@ -638,82 +401,6 @@ pub enum HideMouseMode {
     /// Hide on both typing and cursor movement
     #[default]
     OnTypingAndMovement,
-}
-
-/// Determines how snippets are sorted relative to other completion items.
-///
-/// Default: inline
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    JsonSchema,
-    MergeFrom,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum SnippetSortOrder {
-    /// Place snippets at the top of the completion list
-    Top,
-    /// Sort snippets normally using the default comparison logic
-    #[default]
-    Inline,
-    /// Place snippets at the bottom of the completion list
-    Bottom,
-    /// Do not show snippets in the completion list
-    None,
-}
-
-/// How to display diffs in the editor.
-///
-/// Default: unified
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    strum::Display,
-    strum::EnumIter,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum DiffViewStyle {
-    /// Show diffs in a single unified view.
-    Unified,
-    /// Show diffs in a split view.
-    #[default]
-    Split,
-}
-
-/// Default options for buffer and project search items.
-#[with_fallible_options]
-#[derive(Clone, Default, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq, Eq)]
-pub struct SearchSettingsContent {
-    /// Whether to show the project search button in the status bar.
-    pub button: Option<bool>,
-    /// Whether to only match on whole words.
-    pub whole_word: Option<bool>,
-    /// Whether to match case sensitively.
-    pub case_sensitive: Option<bool>,
-    /// Whether to include gitignored files in search results.
-    pub include_ignored: Option<bool>,
-    /// Whether to interpret the search query as a regular expression.
-    pub regex: Option<bool>,
-    /// Whether to center the cursor on each search match when navigating.
-    pub center_on_match: Option<bool>,
 }
 
 /// Whether to allow drag and drop text selection in buffer.

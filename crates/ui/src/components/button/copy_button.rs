@@ -1,9 +1,6 @@
 use std::time::{Duration, Instant};
 
-use gpui::{
-    AnyElement, App, ClipboardItem, Context, ElementId, Entity, IntoElement, ParentElement,
-    RenderOnce, Styled, Window,
-};
+use gpui::{App, ClipboardItem, Context, ElementId, Entity, IntoElement, RenderOnce, Window};
 
 use crate::{Tooltip, prelude::*};
 
@@ -29,7 +26,7 @@ impl CopyButtonState {
     }
 }
 
-#[derive(IntoElement, RegisterComponent)]
+#[derive(IntoElement)]
 pub struct CopyButton {
     id: ElementId,
     message: SharedString,
@@ -131,70 +128,5 @@ impl RenderOnce for CopyButton {
         } else {
             button
         }
-    }
-}
-
-impl Component for CopyButton {
-    fn scope() -> ComponentScope {
-        ComponentScope::Input
-    }
-
-    fn description() -> Option<&'static str> {
-        Some("An icon button that encapsulates the logic to copy a string into the clipboard.")
-    }
-
-    fn preview(_window: &mut Window, _cx: &mut App) -> Option<AnyElement> {
-        let label_text = "Here's an example label";
-
-        let examples = vec![
-            single_example(
-                "Default",
-                h_flex()
-                    .gap_1()
-                    .child(Label::new(label_text).size(LabelSize::Small))
-                    .child(CopyButton::new("preview-default", label_text))
-                    .into_any_element(),
-            ),
-            single_example(
-                "Multiple Icon Sizes",
-                h_flex()
-                    .gap_1()
-                    .child(Label::new(label_text).size(LabelSize::Small))
-                    .child(
-                        CopyButton::new("preview-xsmall", label_text).icon_size(IconSize::XSmall),
-                    )
-                    .child(
-                        CopyButton::new("preview-medium", label_text).icon_size(IconSize::Medium),
-                    )
-                    .child(
-                        CopyButton::new("preview-xlarge", label_text).icon_size(IconSize::XLarge),
-                    )
-                    .into_any_element(),
-            ),
-            single_example(
-                "Custom Tooltip Label",
-                h_flex()
-                    .gap_1()
-                    .child(Label::new(label_text).size(LabelSize::Small))
-                    .child(
-                        CopyButton::new("preview-tooltip", label_text)
-                            .tooltip_label("Custom tooltip label"),
-                    )
-                    .into_any_element(),
-            ),
-            single_example(
-                "Visible On Hover",
-                h_flex()
-                    .group("container")
-                    .gap_1()
-                    .child(Label::new(label_text).size(LabelSize::Small))
-                    .child(
-                        CopyButton::new("preview-hover", label_text).visible_on_hover("container"),
-                    )
-                    .into_any_element(),
-            ),
-        ];
-
-        Some(example_group(examples).vertical().into_any_element())
     }
 }

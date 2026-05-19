@@ -1,7 +1,6 @@
 use crate::prelude::*;
 use gpui::{
-    AnyElement, App, IntoElement, ParentElement, Rems, RenderOnce, SharedString, Styled, Window,
-    div, rems,
+    App, IntoElement, ParentElement, Rems, RenderOnce, SharedString, Styled, Window, div, rems,
 };
 use theme::ActiveTheme;
 
@@ -123,10 +122,6 @@ pub enum TextSize {
     Ui,
     /// The `buffer_font_size` set by the user.
     Editor,
-    // TODO: The terminal settings will need to be passed to
-    // ThemeSettings before we can enable this.
-    //// The `terminal.font_size` set by the user.
-    // Terminal,
 }
 
 impl TextSize {
@@ -202,7 +197,7 @@ impl HeadlineSize {
 
 /// A headline element, used to emphasize some text and
 /// create a visual hierarchy.
-#[derive(IntoElement, RegisterComponent)]
+#[derive(IntoElement)]
 pub struct Headline {
     size: HeadlineSize,
     text: SharedString,
@@ -242,53 +237,5 @@ impl Headline {
     pub fn color(mut self, color: Color) -> Self {
         self.color = color;
         self
-    }
-}
-
-impl Component for Headline {
-    fn scope() -> ComponentScope {
-        ComponentScope::Typography
-    }
-
-    fn description() -> Option<&'static str> {
-        Some("A headline element used to emphasize text and create visual hierarchy in the UI.")
-    }
-
-    fn preview(_window: &mut Window, _cx: &mut App) -> Option<AnyElement> {
-        Some(
-            v_flex()
-                .gap_1()
-                .children(vec![
-                    single_example(
-                        "XLarge",
-                        Headline::new("XLarge Headline")
-                            .size(HeadlineSize::XLarge)
-                            .into_any_element(),
-                    ),
-                    single_example(
-                        "Large",
-                        Headline::new("Large Headline")
-                            .size(HeadlineSize::Large)
-                            .into_any_element(),
-                    ),
-                    single_example(
-                        "Medium (Default)",
-                        Headline::new("Medium Headline").into_any_element(),
-                    ),
-                    single_example(
-                        "Small",
-                        Headline::new("Small Headline")
-                            .size(HeadlineSize::Small)
-                            .into_any_element(),
-                    ),
-                    single_example(
-                        "XSmall",
-                        Headline::new("XSmall Headline")
-                            .size(HeadlineSize::XSmall)
-                            .into_any_element(),
-                    ),
-                ])
-                .into_any_element(),
-        )
     }
 }

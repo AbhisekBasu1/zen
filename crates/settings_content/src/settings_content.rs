@@ -59,8 +59,6 @@ macro_rules! settings_overrides {
         }
     }
 }
-use std::collections::{BTreeMap, BTreeSet};
-use std::hash::Hash;
 pub use util::serde::default_true;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,19 +86,12 @@ pub struct SettingsContent {
     #[serde(flatten)]
     pub editor: EditorSettingsContent,
 
-    #[serde(flatten)]
-    pub remote: RemoteSettingsContent,
-
     /// Settings related to the file finder.
     pub file_finder: Option<FileFinderSettingsContent>,
-
-    pub git_panel: Option<GitPanelSettingsContent>,
 
     pub tabs: Option<ItemSettingsContent>,
     pub tab_bar: Option<TabBarSettingsContent>,
     pub status_bar: Option<StatusBarSettingsContent>,
-
-    pub preview_tabs: Option<PreviewTabsSettingsContent>,
 
     /// This base keymap settings adjusts the default keybindings in Zed to be similar
     /// to other common code editors. By default, Zed's keymap closely follows VSCode's
@@ -108,15 +99,6 @@ pub struct SettingsContent {
     ///
     /// Default: VSCode
     pub base_keymap: Option<BaseKeymapContent>,
-
-    /// Configuration for Diagnostics-related features.
-    pub diagnostics: Option<DiagnosticsSettingsContent>,
-
-    /// Configuration for Git-related features
-    pub git: Option<GitSettings>,
-
-    /// Common language server settings.
-    pub global_lsp_settings: Option<GlobalLspSettingsContent>,
 
     /// A map of log scopes to the desired log level.
     /// Useful for filtering out noisy logs or enabling more verbose logging.
@@ -131,22 +113,12 @@ pub struct SettingsContent {
     /// Configuration for the Message Editor
     pub message_editor: Option<MessageEditorSettings>,
 
-    /// Configuration for Node-related features
-    pub node: Option<NodeBinarySettings>,
-
     pub proxy: Option<String>,
 
     /// Configuration for session-related features
     pub session: Option<SessionSettingsContent>,
 
     pub title_bar: Option<TitleBarSettingsContent>,
-
-    /// Number of lines to search for modelines at the beginning and end of files.
-    /// Modelines contain editor directives (e.g., vim/emacs settings) that configure
-    /// the editor behavior for specific files.
-    ///
-    /// Default: 5
-    pub modeline_lines: Option<usize>,
 
     /// Local overrides for feature flags, keyed by flag name.
     pub feature_flags: Option<FeatureFlagsMap>,
@@ -230,12 +202,6 @@ impl RootUserSettings for UserSettingsContent {
 settings_overrides! {
     #[with_fallible_options]
     #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize, JsonSchema, MergeFrom)]
-    pub struct ReleaseChannelOverrides { dev, nightly, preview, stable }
-}
-
-settings_overrides! {
-    #[with_fallible_options]
-    #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize, JsonSchema, MergeFrom)]
     pub struct PlatformOverrides { macos, linux, windows }
 }
 
@@ -273,9 +239,6 @@ pub struct SettingsProfile {
 pub struct UserSettingsContent {
     #[serde(flatten)]
     pub content: Box<SettingsContent>,
-
-    #[serde(flatten)]
-    pub release_channel_overrides: ReleaseChannelOverrides,
 
     #[serde(flatten)]
     pub platform_overrides: PlatformOverrides,
@@ -347,107 +310,6 @@ pub enum DockPosition {
     Left,
     Bottom,
     Right,
-}
-
-#[with_fallible_options]
-#[derive(Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug)]
-pub struct GitPanelSettingsContent {
-    /// Whether to show the panel button in the status bar.
-    ///
-    /// Default: true
-    pub button: Option<bool>,
-    /// Where to dock the panel.
-    ///
-    /// Default: left
-    pub dock: Option<DockPosition>,
-    /// Default width of the panel in pixels.
-    ///
-    /// Default: 360
-    #[serde(serialize_with = "crate::serialize_optional_f32_with_two_decimal_places")]
-    pub default_width: Option<f32>,
-    /// How entry statuses are displayed.
-    ///
-    /// Default: icon
-    pub status_style: Option<StatusStyle>,
-
-    /// Whether to show file icons in the git panel.
-    ///
-    /// Default: false
-    pub file_icons: Option<bool>,
-
-    /// Whether to show folder icons or chevrons for directories in the git panel.
-    ///
-    /// Default: true
-    pub folder_icons: Option<bool>,
-
-    /// How and when the scrollbar should be displayed.
-    ///
-    /// Default: inherits editor scrollbar settings
-    pub scrollbar: Option<ScrollbarSettings>,
-
-    /// What the default branch name should be when
-    /// `init.defaultBranch` is not set in git
-    ///
-    /// Default: main
-    pub fallback_branch_name: Option<String>,
-
-    /// Whether to sort entries in the panel by path
-    /// or by status (the default).
-    ///
-    /// Default: false
-    pub sort_by_path: Option<bool>,
-
-    /// Whether to collapse untracked files in the diff panel.
-    ///
-    /// Default: false
-    pub collapse_untracked_diff: Option<bool>,
-
-    /// Whether to show entries with tree or flat view in the panel
-    ///
-    /// Default: false
-    pub tree_view: Option<bool>,
-
-    /// Whether to show the addition/deletion change count next to each file in the Git panel.
-    ///
-    /// Default: true
-    pub diff_stats: Option<bool>,
-
-    /// Whether to show a badge on the git panel icon with the count of uncommitted changes.
-    ///
-    /// Default: false
-    pub show_count_badge: Option<bool>,
-
-    /// Whether the git panel should open on startup.
-    ///
-    /// Default: false
-    pub starts_open: Option<bool>,
-
-    /// Maximum length of the commit message title before a warning is shown.
-    /// Set to 0 to disable.
-    ///
-    /// Default: 72
-    pub commit_title_max_length: Option<usize>,
-}
-
-#[derive(
-    Default,
-    Copy,
-    Clone,
-    Debug,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    Eq,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum StatusStyle {
-    #[default]
-    Icon,
-    LabelColor,
 }
 
 #[with_fallible_options]
@@ -539,10 +401,6 @@ pub struct FileFinderSettingsContent {
     ///
     /// Default: Smart
     pub include_ignored: Option<IncludeIgnoredContent>,
-    /// Whether to include text channels in file finder results.
-    ///
-    /// Default: false
-    pub include_channels: Option<bool>,
 }
 
 #[derive(
@@ -647,78 +505,6 @@ pub enum LineIndicatorFormat {
     Short,
     #[default]
     Long,
-}
-
-#[with_fallible_options]
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq)]
-pub struct RemoteSettingsContent {
-    pub ssh_connections: Option<Vec<SshConnection>>,
-    pub wsl_connections: Option<Vec<WslConnection>>,
-    pub dev_container_connections: Option<Vec<DevContainerConnection>>,
-    pub read_ssh_config: Option<bool>,
-    pub use_podman: Option<bool>,
-}
-
-#[with_fallible_options]
-#[derive(
-    Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema, MergeFrom, Hash,
-)]
-pub struct DevContainerConnection {
-    pub name: String,
-    pub remote_user: String,
-    pub container_id: String,
-    pub use_podman: bool,
-    pub extension_ids: Vec<String>,
-    pub remote_env: BTreeMap<String, String>,
-}
-
-#[with_fallible_options]
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, JsonSchema, MergeFrom)]
-pub struct SshConnection {
-    pub host: String,
-    pub username: Option<String>,
-    pub port: Option<u16>,
-    #[serde(default)]
-    pub args: Vec<String>,
-    #[serde(default)]
-    pub projects: collections::BTreeSet<RemoteProject>,
-    /// Name to use for this server in UI.
-    pub nickname: Option<String>,
-    // By default Zed will download the binary to the host directly.
-    // If this is set to true, Zed will download the binary to your local machine,
-    // and then upload it over the SSH connection. Useful if your SSH server has
-    // limited outbound internet access.
-    pub upload_binary_over_ssh: Option<bool>,
-
-    pub port_forwards: Option<Vec<SshPortForwardOption>>,
-    /// Timeout in seconds for SSH connection and downloading the remote server binary.
-    /// Defaults to 10 seconds if not specified.
-    pub connection_timeout: Option<u16>,
-}
-
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, JsonSchema, MergeFrom, Debug)]
-pub struct WslConnection {
-    pub distro_name: String,
-    pub user: Option<String>,
-    #[serde(default)]
-    pub projects: BTreeSet<RemoteProject>,
-}
-
-#[with_fallible_options]
-#[derive(
-    Clone, Debug, Default, Serialize, PartialEq, Eq, PartialOrd, Ord, Deserialize, JsonSchema,
-)]
-pub struct RemoteProject {
-    pub paths: Vec<String>,
-}
-
-#[with_fallible_options]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize, JsonSchema, MergeFrom)]
-pub struct SshPortForwardOption {
-    pub local_host: Option<String>,
-    pub local_port: u16,
-    pub remote_host: Option<String>,
-    pub remote_port: u16,
 }
 
 // An ExtendingVec in the settings can only accumulate new values.

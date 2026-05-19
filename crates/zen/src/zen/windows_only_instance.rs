@@ -1,4 +1,4 @@
-use crate::release_channel::app_identifier;
+use crate::app_metadata::app_identifier;
 use util::ResultExt;
 use windows::{
     Win32::{

@@ -2,26 +2,22 @@ mod app_menus;
 #[cfg(target_os = "macos")]
 pub(crate) mod mac_only_instance;
 mod open_listener;
+mod theme_selector;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows_only_instance;
 
 use anyhow::Context as _;
 pub use app_menus::*;
 
-use crate::release_channel::ReleaseChannel;
 use editor::{Editor, MultiBuffer};
-use git_ui::commit_view::CommitViewToolbar;
-use git_ui::git_panel::GitPanel;
-use git_ui::project_diff::{BranchDiffToolbar, ProjectDiffToolbar};
 use gpui::{
-    App, AppContext as _, Context, Entity, Focusable, PathPromptOptions, PromptLevel, ReadGlobal,
-    Task, TitlebarOptions, WeakEntity, Window, WindowHandle, WindowKind, WindowOptions, actions,
-    point, px,
+    App, AppContext as _, Context, Entity, Focusable, PathPromptOptions, PromptLevel, Task,
+    TitlebarOptions, WeakEntity, Window, WindowHandle, WindowKind, WindowOptions, actions, point,
+    px,
 };
 use language::Capability;
 pub use open_listener::*;
 use project_panel::ProjectPanel;
-use search::project_search::ProjectSearchBar;
 use settings::{
     BaseKeymap, DEFAULT_KEYMAP_PATH, KeybindSource, KeymapFile, Settings, SettingsStore,
     update_settings_file,
@@ -37,12 +33,11 @@ use ui::prelude::*;
 use util::ResultExt;
 use uuid::Uuid;
 
-use workspace::Pane;
 use workspace::{
     AppState, MultiWorkspace, NewFile, NewWindow, Workspace, WorkspaceSettings, open_new,
 };
 use workspace::{CloseIntent, CloseProject, CloseWindow};
-use zen_actions::{OpenBrowser, OpenZenUrl, Quit};
+use zen_actions::Quit;
 
 actions!(
     zen,
@@ -102,7 +97,7 @@ pub fn build_window_options(display_uuid: Option<Uuid>, cx: &mut App) -> WindowO
             .into_iter()
             .find(|display| display.uuid().ok() == Some(uuid))
     });
-    let app_id = ReleaseChannel::global(cx).app_id();
+    let app_id = crate::app_metadata::APP_ID;
     let window_decorations = match std::env::var("ZEN_WINDOW_DECORATIONS") {
         Ok(val) if val == "server" => gpui::WindowDecorations::Server,
         Ok(val) if val == "client" => gpui::WindowDecorations::Client,
@@ -223,14 +218,8 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
         };
 
         let workspace_handle = cx.entity();
-        let center_pane = workspace.active_pane().clone();
-        initialize_pane(workspace, &center_pane, window, cx);
-
         cx.subscribe_in(&workspace_handle, window, {
             move |workspace, _, event, window, cx| match event {
-                workspace::Event::PaneAdded(pane) => {
-                    initialize_pane(workspace, pane, window, cx);
-                }
                 workspace::Event::OpenBundledFile {
                     text,
                     title,
@@ -249,13 +238,11 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
             show_software_emulation_warning_if_needed(specs.clone(), window, cx);
         }
 
-        let search_button = cx.new(|_| search::search_status_button::SearchButton::new());
         let active_file_name = cx.new(|_| workspace::active_file_name::ActiveFileName::new());
 
         let cursor_position =
             cx.new(|_| go_to_line::cursor_position::CursorPosition::new(workspace));
         workspace.status_bar().update(cx, |status_bar, cx| {
-            status_bar.add_left_item(search_button, window, cx);
             status_bar.add_left_item(active_file_name, window, cx);
             status_bar.add_right_item(cursor_position, window, cx);
         });
@@ -361,7 +348,6 @@ fn show_software_emulation_warning_if_needed(
 fn initialize_panels(window: &mut Window, cx: &mut Context<Workspace>) -> Task<anyhow::Result<()>> {
     cx.spawn_in(window, async move |workspace_handle, cx| {
         let project_panel = ProjectPanel::load(workspace_handle.clone(), cx.clone());
-        let git_panel = GitPanel::load(workspace_handle.clone(), cx.clone());
 
         async fn add_panel_when_ready(
             panel_task: impl Future<Output = anyhow::Result<Entity<impl workspace::Panel>>> + 'static,
@@ -378,10 +364,7 @@ fn initialize_panels(window: &mut Window, cx: &mut Context<Workspace>) -> Task<a
             }
         }
 
-        futures::join!(
-            add_panel_when_ready(project_panel, workspace_handle.clone(), cx.clone()),
-            add_panel_when_ready(git_panel, workspace_handle.clone(), cx.clone()),
-        );
+        add_panel_when_ready(project_panel, workspace_handle.clone(), cx.clone()).await;
 
         anyhow::Ok(())
     })
@@ -403,28 +386,12 @@ fn register_actions(
         .register_action(|_, _: &ToggleFullScreen, window, _| {
             window.toggle_fullscreen();
         })
-        .register_action(|_, action: &OpenZenUrl, _, cx| {
-            OpenListener::global(cx).open(RawOpenRequest {
-                urls: vec![action.url.clone()],
-                ..Default::default()
-            })
-        })
-        .register_action(|workspace, action: &OpenBrowser, _window, cx| {
-            // Parse and validate the URL to ensure it's properly formatted
-            match url::Url::parse(&action.url) {
-                Ok(parsed_url) => {
-                    // Use the parsed URL's string representation which is properly escaped
-                    cx.open_url(parsed_url.as_str());
-                }
-                Err(e) => {
-                    workspace.show_error(
-                        &anyhow::anyhow!(
-                            "Opening this URL in a browser failed because the URL is invalid: {}\n\nError was: {e}",
-                            action.url
-                        ),
-                        cx,
-                    );
-                }
+        .register_action({
+            let fs = app_state.fs.clone();
+            move |workspace, _: &zen_actions::theme::Select, window, cx| {
+                workspace.toggle_modal(window, cx, |window, cx| {
+                    theme_selector::theme_selector(fs.clone(), window, cx)
+                });
             }
         })
         .register_action(|workspace, action: &workspace::Open, window, cx| {
@@ -464,10 +431,9 @@ fn register_actions(
                 if action.persist {
                     update_settings_file(fs.clone(), cx, move |settings, cx| {
                         let ui_font_size = ThemeSettings::get_global(cx).ui_font_size(cx) + px(1.0);
-                        let _ = settings
-                            .theme
-                            .ui_font_size
-                            .insert(f32::from(theme_settings::clamp_font_size(ui_font_size)).into());
+                        let _ = settings.theme.ui_font_size.insert(
+                            f32::from(theme_settings::clamp_font_size(ui_font_size)).into(),
+                        );
                     });
                 } else {
                     theme_settings::adjust_ui_font_size(cx, |size| size + px(1.0));
@@ -480,10 +446,9 @@ fn register_actions(
                 if action.persist {
                     update_settings_file(fs.clone(), cx, move |settings, cx| {
                         let ui_font_size = ThemeSettings::get_global(cx).ui_font_size(cx) - px(1.0);
-                        let _ = settings
-                            .theme
-                            .ui_font_size
-                            .insert(f32::from(theme_settings::clamp_font_size(ui_font_size)).into());
+                        let _ = settings.theme.ui_font_size.insert(
+                            f32::from(theme_settings::clamp_font_size(ui_font_size)).into(),
+                        );
                     });
                 } else {
                     theme_settings::adjust_ui_font_size(cx, |size| size - px(1.0));
@@ -509,10 +474,9 @@ fn register_actions(
                     update_settings_file(fs.clone(), cx, move |settings, cx| {
                         let buffer_font_size =
                             ThemeSettings::get_global(cx).buffer_font_size(cx) + px(1.0);
-                        let _ = settings
-                            .theme
-                            .buffer_font_size
-                            .insert(f32::from(theme_settings::clamp_font_size(buffer_font_size)).into());
+                        let _ = settings.theme.buffer_font_size.insert(
+                            f32::from(theme_settings::clamp_font_size(buffer_font_size)).into(),
+                        );
                     });
                 } else {
                     theme_settings::increase_buffer_font_size(cx);
@@ -526,10 +490,9 @@ fn register_actions(
                     update_settings_file(fs.clone(), cx, move |settings, cx| {
                         let buffer_font_size =
                             ThemeSettings::get_global(cx).buffer_font_size(cx) - px(1.0);
-                        let _ = settings
-                            .theme
-                            .buffer_font_size
-                            .insert(f32::from(theme_settings::clamp_font_size(buffer_font_size)).into());
+                        let _ = settings.theme.buffer_font_size.insert(
+                            f32::from(theme_settings::clamp_font_size(buffer_font_size)).into(),
+                        );
                     });
                 } else {
                     theme_settings::decrease_buffer_font_size(cx);
@@ -581,19 +544,11 @@ fn register_actions(
                         cx.activate(true);
                         // Create buffer synchronously to avoid flicker
                         let project = workspace.project().clone();
-                        let buffer = project.update(cx, |project, cx| {
-                            project.create_local_buffer("", None, true, cx)
-                        });
-                        let editor = cx.new(|cx| {
-                            Editor::for_buffer(buffer, Some(project), window, cx)
-                        });
-                        workspace.add_item_to_active_pane(
-                            Box::new(editor),
-                            None,
-                            true,
-                            window,
-                            cx,
-                        );
+                        let buffer = project
+                            .update(cx, |project, cx| project.create_local_buffer("", None, cx));
+                        let editor =
+                            cx.new(|cx| Editor::for_buffer(buffer, Some(project), window, cx));
+                        workspace.add_item_to_active_pane(Box::new(editor), None, true, window, cx);
                     },
                 )
                 .detach();
@@ -601,20 +556,16 @@ fn register_actions(
         })
         .register_action({
             let app_state = app_state.clone();
-            move |workspace, _: &CloseProject, window, cx| {
-                let Some(window_handle) = window.window_handle().downcast::<MultiWorkspace>() else {
+            move |_workspace, _: &CloseProject, window, cx| {
+                let Some(window_handle) = window.window_handle().downcast::<MultiWorkspace>()
+                else {
                     return;
                 };
                 let app_state = app_state.clone();
-                let old_group_key = workspace.project_group_key(cx);
                 cx.spawn_in(window, async move |this, cx| {
                     let should_continue = this
                         .update_in(cx, |workspace, window, cx| {
-                            workspace.prepare_to_close(
-                                CloseIntent::ReplaceWindow,
-                                window,
-                                cx,
-                            )
+                            workspace.prepare_to_close(CloseIntent::ReplaceWindow, window, cx)
                         })?
                         .await?;
                     if should_continue {
@@ -630,7 +581,7 @@ fn register_actions(
                                     cx.activate(true);
                                     let project = workspace.project().clone();
                                     let buffer = project.update(cx, |project, cx| {
-                                        project.create_local_buffer("", None, true, cx)
+                                        project.create_local_buffer("", None, cx)
                                     });
                                     let editor = cx.new(|cx| {
                                         Editor::for_buffer(buffer, Some(project), window, cx)
@@ -646,9 +597,6 @@ fn register_actions(
                             )
                         })?;
                         task.await?;
-                        window_handle.update(cx, |mw, window, cx| {
-                            mw.remove_project_group(&old_group_key, window, cx)
-                        })?.await.log_err();
                         Ok::<(), anyhow::Error>(())
                     } else {
                         Ok(())
@@ -671,34 +619,6 @@ fn register_actions(
                 .detach_and_log_err(cx);
             }
         });
-}
-
-fn initialize_pane(
-    workspace: &Workspace,
-    pane: &Entity<Pane>,
-    window: &mut Window,
-    cx: &mut Context<Workspace>,
-) {
-    pane.update(cx, |pane, cx| {
-        pane.toolbar().update(cx, |toolbar, cx| {
-            let buffer_search_bar = cx.new(|cx| {
-                search::BufferSearchBar::new(
-                    Some(workspace.project().read(cx).languages().clone()),
-                    window,
-                    cx,
-                )
-            });
-            toolbar.add_item(buffer_search_bar.clone(), window, cx);
-            let project_search_bar = cx.new(|_| ProjectSearchBar::new());
-            toolbar.add_item(project_search_bar, window, cx);
-            let project_diff_toolbar = cx.new(|cx| ProjectDiffToolbar::new(workspace, cx));
-            toolbar.add_item(project_diff_toolbar, window, cx);
-            let branch_diff_toolbar = cx.new(BranchDiffToolbar::new);
-            toolbar.add_item(branch_diff_toolbar, window, cx);
-            let commit_view_toolbar = cx.new(|_| CommitViewToolbar::new());
-            toolbar.add_item(commit_view_toolbar, window, cx);
-        })
-    });
 }
 
 static WAITING_QUIT_CONFIRMATION: AtomicBool = AtomicBool::new(false);
@@ -761,7 +681,7 @@ fn quit(_: &Quit, cx: &mut App) {
             for workspace in workspaces {
                 if let Some(should_close) = window
                     .update(cx, |multi_workspace, window, cx| {
-                        multi_workspace.activate(workspace.clone(), None, window, cx);
+                        multi_workspace.activate(workspace.clone(), window, cx);
                         window.activate_window();
                         workspace.update(cx, |workspace, cx| {
                             workspace.prepare_to_close(CloseIntent::Quit, window, cx)
@@ -775,24 +695,6 @@ fn quit(_: &Quit, cx: &mut App) {
                 }
             }
         }
-        // Flush all pending workspace serialization before quitting so that
-        // session_id/window_id are up-to-date in the database.
-        let mut flush_tasks = Vec::new();
-        for window in &workspace_windows {
-            window
-                .update(cx, |multi_workspace, window, cx| {
-                    for workspace in multi_workspace.workspaces() {
-                        flush_tasks.push(workspace.update(cx, |workspace, cx| {
-                            workspace.flush_serialization(window, cx)
-                        }));
-                    }
-                    flush_tasks.append(&mut multi_workspace.take_pending_removal_tasks());
-                    flush_tasks.push(multi_workspace.flush_serialization());
-                })
-                .log_err();
-        }
-        futures::future::join_all(flush_tasks).await;
-
         cx.update(|cx| cx.quit());
         anyhow::Ok(())
     })
@@ -852,9 +754,8 @@ fn open_bundled_file(
         workspace
             .update_in(cx, move |workspace, window, cx| {
                 let project = workspace.project().clone();
-                let buffer = project.update(cx, move |project, cx| {
-                    project.create_buffer(language, false, cx)
-                });
+                let buffer =
+                    project.update(cx, move |project, cx| project.create_buffer(language, cx));
                 cx.spawn_in(window, async move |workspace, cx| {
                     let buffer = buffer.await?;
                     buffer.update(cx, |buffer, cx| {
@@ -873,7 +774,6 @@ fn open_bundled_file(
                                     cx,
                                 );
                                 editor.set_read_only(true);
-                                editor.set_should_serialize(false, cx);
                                 editor
                             })),
                             None,

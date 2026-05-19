@@ -5,7 +5,6 @@ use crate::{
 use anyhow::{Context as _, Result};
 use collections::HashMap;
 use gpui_shared_string::SharedString;
-use lsp::LanguageServerName;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use tree_sitter::Query;
@@ -286,7 +285,6 @@ impl Grammar {
                     name,
                     &config.overrides,
                     &mut config.brackets,
-                    &config.scope_opt_in_language_servers,
                 )
                 .context("Error loading override query")?;
         }
@@ -560,7 +558,6 @@ impl Grammar {
         language_name: &LanguageName,
         overrides: &HashMap<String, LanguageConfigOverride>,
         brackets: &mut BracketPairConfig,
-        scope_opt_in_language_servers: &[LanguageServerName],
     ) -> Result<Self> {
         let query = Query::new(&self.ts_language, source)?;
 
@@ -576,13 +573,6 @@ impl Grammar {
             }
 
             let value = overrides.get(name).cloned().unwrap_or_default();
-            for server_name in &value.opt_into_language_servers {
-                if !scope_opt_in_language_servers.contains(server_name) {
-                    util::debug_panic!(
-                        "Server {server_name:?} has been opted-in by scope {name:?} but has not been marked as an opt-in server"
-                    );
-                }
-            }
 
             override_configs_by_id.insert(
                 ix as u32,

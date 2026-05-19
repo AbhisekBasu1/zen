@@ -41,24 +41,7 @@ pub struct WorkspaceSettingsContent {
     ///
     /// Default: off
     pub autosave: Option<AutosaveSetting>,
-    /// Controls previous session restoration in freshly launched Zed instance.
-    /// Values: empty_tab, last_workspace, last_session, launchpad
-    /// Default: last_session
-    pub restore_on_startup: Option<RestoreOnStartupBehavior>,
-    /// The default behavior when opening paths from the CLI without
-    /// an explicit `-e` or `-n` flag.
-    ///
-    /// Default: existing_window
-    pub cli_default_open_behavior: Option<CliDefaultOpenBehavior>,
     /// Whether to attempt to restore previous file's state when opening it again.
-    /// The state is stored per pane.
-    /// When disabled, defaults are applied instead of the state restoration.
-    ///
-    /// E.g. for editors, selections, folds and scroll positions are restored, if the same file is closed and, later, opened again in the same pane.
-    /// When disabled, a single selection in the very beginning of the file, zero scroll position and no folds state is used as a default.
-    ///
-    /// Default: true
-    pub restore_on_file_reopen: Option<bool>,
     /// The size of the workspace split drop targets on the outer edges.
     /// Given as a fraction that will be multiplied by the smaller dimension of the workspace.
     ///
@@ -131,10 +114,6 @@ pub struct WorkspaceSettingsContent {
 #[with_fallible_options]
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]
 pub struct ItemSettingsContent {
-    /// Whether to show the Git file status on a tab item.
-    ///
-    /// Default: false
-    pub git_status: Option<bool>,
     /// Position of the close button in a tab.
     ///
     /// Default: right
@@ -147,50 +126,10 @@ pub struct ItemSettingsContent {
     ///
     /// Default: history
     pub activate_on_close: Option<ActivateOnClose>,
-    /// Which files containing diagnostic errors/warnings to mark in the tabs.
-    /// This setting can take the following three values:
-    ///
-    /// Default: off
-    pub show_diagnostics: Option<ShowDiagnostics>,
     /// Whether to always show the close button on tabs.
     ///
     /// Default: false
     pub show_close_button: Option<ShowCloseButton>,
-}
-
-#[with_fallible_options]
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]
-pub struct PreviewTabsSettingsContent {
-    /// Whether to show opened editors as preview tabs.
-    /// Preview tabs do not stay open, are reused until explicitly set to be kept open opened (via double-click or editing) and show file names in italic.
-    ///
-    /// Default: true
-    pub enabled: Option<bool>,
-    /// Whether to open tabs in preview mode when opened from the project panel with a single click.
-    ///
-    /// Default: true
-    pub enable_preview_from_project_panel: Option<bool>,
-    /// Whether to open tabs in preview mode when selected from the file finder.
-    ///
-    /// Default: false
-    pub enable_preview_from_file_finder: Option<bool>,
-    /// Whether to open tabs in preview mode when opened from a multibuffer.
-    ///
-    /// Default: true
-    pub enable_preview_from_multibuffer: Option<bool>,
-    /// Whether to open tabs in preview mode when code navigation is used to open a multibuffer.
-    ///
-    /// Default: false
-    pub enable_preview_multibuffer_from_code_navigation: Option<bool>,
-    /// Whether to open tabs in preview mode when code navigation is used to open a single file.
-    ///
-    /// Default: true
-    pub enable_preview_file_from_code_navigation: Option<bool>,
-    /// Whether to keep tabs in preview mode when code navigation is used to navigate away from them.
-    /// If `enable_preview_file_from_code_navigation` or `enable_preview_multibuffer_from_code_navigation` is also true, the new tab may replace the existing one.
-    ///
-    /// Default: false
-    pub enable_keep_preview_on_code_navigation: Option<bool>,
 }
 
 #[derive(
@@ -232,28 +171,6 @@ pub enum ShowCloseButton {
     #[default]
     Hover,
     Hidden,
-}
-
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Default,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    Eq,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum ShowDiagnostics {
-    #[default]
-    Off,
-    Errors,
-    All,
 }
 
 #[derive(
@@ -378,60 +295,6 @@ impl CloseWindowWhenNoItems {
             CloseWindowWhenNoItems::KeepWindowOpen => false,
         }
     }
-}
-
-#[derive(
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    Default,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    Debug,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum CliDefaultOpenBehavior {
-    /// Open directories as a new workspace in the current Zed window's sidebar.
-    #[default]
-    #[strum(serialize = "Add to Existing Window")]
-    ExistingWindow,
-    /// Open directories in a new window, but reuse an existing window when
-    /// opening files that are already part of an open project.
-    #[strum(serialize = "Open a New Window")]
-    NewWindow,
-}
-
-#[derive(
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    Default,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    Debug,
-    strum::VariantArray,
-    strum::VariantNames,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum RestoreOnStartupBehavior {
-    /// Always start with an empty editor tab
-    #[serde(alias = "none")]
-    EmptyTab,
-    /// Restore the workspace that was closed last.
-    LastWorkspace,
-    /// Restore all workspaces that were open when quitting Zed.
-    #[default]
-    LastSession,
-    /// Show the launchpad with recent projects (no tabs).
-    Launchpad,
 }
 
 #[with_fallible_options]
@@ -715,10 +578,6 @@ pub struct ProjectPanelSettingsContent {
     ///
     /// Default: true
     pub folder_icons: Option<bool>,
-    /// Whether to show the git status in the project panel.
-    ///
-    /// Default: true
-    pub git_status: Option<bool>,
     /// Amount of indentation (in pixels) for nested items.
     ///
     /// Default: 20
@@ -745,10 +604,6 @@ pub struct ProjectPanelSettingsContent {
     pub starts_open: Option<bool>,
     /// Scrollbar-related settings
     pub scrollbar: Option<ProjectPanelScrollbarSettingsContent>,
-    /// Which files containing diagnostic errors/warnings to mark in the project panel.
-    ///
-    /// Default: all
-    pub show_diagnostics: Option<ShowDiagnostics>,
     /// Settings related to indent guides in the project panel.
     pub indent_guides: Option<ProjectPanelIndentGuidesSettings>,
     /// Whether to hide the root entry when only one folder is open in the window.
@@ -779,14 +634,6 @@ pub struct ProjectPanelSettingsContent {
     ///
     /// Default: default
     pub sort_order: Option<ProjectPanelSortOrder>,
-    /// Whether to show error and warning count badges next to file names in the project panel.
-    ///
-    /// Default: false
-    pub diagnostic_badges: Option<bool>,
-    /// Whether to show a git status indicator next to file names in the project panel.
-    ///
-    /// Default: false
-    pub git_status_indicator: Option<bool>,
 }
 
 #[derive(
@@ -912,46 +759,6 @@ pub struct ProjectPanelScrollbarSettingsContent {
 )]
 pub struct ProjectPanelIndentGuidesSettings {
     pub show: Option<ShowIndentGuides>,
-}
-
-/// Controls how semantic tokens from language servers are used for syntax highlighting.
-#[derive(
-    Debug,
-    PartialEq,
-    Eq,
-    Clone,
-    Copy,
-    Default,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    strum::VariantArray,
-    strum::VariantNames,
-    strum::EnumMessage,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum SemanticTokens {
-    /// Do not request semantic tokens from language servers.
-    #[default]
-    Off,
-    /// Use LSP semantic tokens together with tree-sitter highlighting.
-    Combined,
-    /// Use LSP semantic tokens exclusively, replacing tree-sitter highlighting.
-    Full,
-}
-
-impl SemanticTokens {
-    /// Returns true if semantic tokens should be requested from language servers.
-    pub fn enabled(&self) -> bool {
-        self != &Self::Off
-    }
-
-    /// Returns true if tree-sitter syntax highlighting should be used.
-    /// In `full` mode, tree-sitter is disabled in favor of LSP semantic tokens.
-    pub fn use_tree_sitter(&self) -> bool {
-        self != &Self::Full
-    }
 }
 
 #[with_fallible_options]

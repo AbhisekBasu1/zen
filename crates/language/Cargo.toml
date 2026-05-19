@@ -17,11 +17,7 @@ wasm-grammars = ["tree-sitter/wasm"]
 test-support = [
     "rand",
     "collections/test-support",
-    "lsp/test-support",
     "text/test-support",
-    "tree-sitter-rust",
-    "tree-sitter-python",
-    "tree-sitter-typescript",
     "tree-sitter-md",
     "settings/test-support",
     "util/test-support",
@@ -29,7 +25,6 @@ test-support = [
 
 [dependencies]
 anyhow.workspace = true
-async-trait.workspace = true
 clock.workspace = true
 collections.workspace = true
 ec4rs.workspace = true
@@ -40,18 +35,14 @@ futures-lite.workspace = true
 fuzzy.workspace = true
 globset.workspace = true
 gpui.workspace = true
-http_client.workspace = true
 imara-diff.workspace = true
 language_core.workspace = true
 itertools.workspace = true
 log.workspace = true
-lsp.workspace = true
 parking_lot.workspace = true
 postage.workspace = true
 rand = { workspace = true, optional = true }
 regex.workspace = true
-rpc.workspace = true
-semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 settings.workspace = true
@@ -64,9 +55,6 @@ theme.workspace = true
 toml.workspace = true
 tracing.workspace = true
 tree-sitter-md = { workspace = true, optional = true }
-tree-sitter-python = { workspace = true, optional = true }
-tree-sitter-rust = { workspace = true, optional = true }
-tree-sitter-typescript = { workspace = true, optional = true }
 tree-sitter.workspace = true
 unicase = "2.6"
 util.workspace = true

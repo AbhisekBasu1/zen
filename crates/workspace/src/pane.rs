@@ -1,17 +1,17 @@
 use crate::{
-    CloseWindow, NewFile, OpenOptions, OpenVisible, SplitDirection, ToggleFileFinder,
-    ToggleProjectSymbols, ToggleZoom, Workspace, WorkspaceItemBuilder, ZoomIn, ZoomOut,
+    CloseWindow, NewFile, OpenOptions, OpenVisible, SplitDirection, ToggleFileFinder, ToggleZoom,
+    Workspace, WorkspaceItemBuilder, ZoomIn, ZoomOut,
     focus_follows_mouse::FocusFollowsMouse as _,
     invalid_item_view::InvalidItemView,
     item::{
         ActivateOnClose, ClosePosition, Item, ItemBufferKind, ItemHandle, ItemSettings,
-        PreviewTabsSettings, ProjectItemKind, SaveOptions, ShowCloseButton, ShowDiagnostics,
-        TabContentParams, TabTooltipContent, WeakItemHandle,
+        ProjectItemKind, SaveOptions, ShowCloseButton, TabContentParams, TabTooltipContent,
+        WeakItemHandle,
     },
     move_item,
     notifications::NotifyResultExt,
     toolbar::Toolbar,
-    workspace_settings::{AutosaveSetting, FocusFollowsMouse, TabBarSettings, WorkspaceSettings},
+    workspace_settings::{FocusFollowsMouse, TabBarSettings, WorkspaceSettings},
 };
 use anyhow::Result;
 use collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -24,7 +24,7 @@ use gpui::{
     deferred, prelude::*,
 };
 use itertools::Itertools;
-use language::{Capability, DiagnosticSeverity};
+use language::Capability;
 use parking_lot::Mutex;
 use project::{DirectoryLister, Project, ProjectEntryId, ProjectPath, WorktreeId};
 use schemars::JsonSchema;
@@ -40,13 +40,11 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
-    time::Duration,
 };
 use theme_settings::ThemeSettings;
 use ui::{
-    ContextMenu, ContextMenuEntry, ContextMenuItem, DecoratedIcon, IconButtonShape, IconDecoration,
-    IconDecorationKind, Indicator, PopoverMenu, PopoverMenuHandle, Tab, TabBar, TabPosition,
-    Tooltip, prelude::*, right_click_menu,
+    ContextMenu, ContextMenuEntry, ContextMenuItem, IconButtonShape, Indicator, PopoverMenu,
+    PopoverMenuHandle, Tab, TabBar, TabPosition, Tooltip, prelude::*, right_click_menu,
 };
 use util::{
     ResultExt, debug_panic, maybe, paths::PathStyle, serde::default_true, truncate_and_remove_front,
@@ -82,10 +80,6 @@ pub enum SaveIntent {
     /// write all files (even if unchanged)
     /// prompt before overwriting on-disk changes
     Save,
-    /// same as Save, but always formats regardless of the format_on_save setting
-    FormatAndSave,
-    /// same as Save, but without auto formatting
-    SaveWithoutFormat,
     /// write any files that have local changes
     /// prompt before overwriting on-disk changes
     SaveAll,
@@ -183,29 +177,6 @@ pub struct CloseItemsToTheLeft {
 pub struct RevealInProjectPanel {
     #[serde(skip)]
     pub entry_id: Option<u64>,
-}
-
-/// Opens the search interface with the specified configuration.
-#[derive(Clone, PartialEq, Debug, Deserialize, JsonSchema, Default, Action)]
-#[action(namespace = pane)]
-#[serde(deny_unknown_fields)]
-pub struct DeploySearch {
-    #[serde(default)]
-    pub replace_enabled: bool,
-    #[serde(default)]
-    pub included_files: Option<String>,
-    #[serde(default)]
-    pub excluded_files: Option<String>,
-    #[serde(default)]
-    pub query: Option<String>,
-    #[serde(default)]
-    pub regex: Option<bool>,
-    #[serde(default)]
-    pub case_sensitive: Option<bool>,
-    #[serde(default)]
-    pub whole_word: Option<bool>,
-    #[serde(default)]
-    pub include_ignored: Option<bool>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Deserialize, JsonSchema, Default)]
@@ -308,8 +279,6 @@ actions!(
         SwapItemLeft,
         /// Swaps the current item with the one to the right.
         SwapItemRight,
-        /// Toggles preview mode for the current tab.
-        TogglePreviewTab,
         /// Toggles pin status for the current tab.
         TogglePinTab,
         /// Unpins all tabs in the pane.
@@ -417,7 +386,6 @@ pub struct Pane {
         Option<Arc<dyn Fn(&mut Self, &dyn Any, &mut Window, &mut Context<Self>) -> bool>>,
     can_toggle_zoom: bool,
     should_display_tab_bar: Rc<dyn Fn(&Window, &mut Context<Pane>) -> bool>,
-    should_display_welcome_page: bool,
     render_tab_bar_buttons: Rc<
         dyn Fn(
             &mut Pane,
@@ -443,13 +411,10 @@ pub struct Pane {
     pub new_item_context_menu_handle: PopoverMenuHandle<ContextMenu>,
     pub split_item_context_menu_handle: PopoverMenuHandle<ContextMenu>,
     pinned_tab_count: usize,
-    diagnostics: HashMap<ProjectPath, DiagnosticSeverity>,
     zoom_out_on_close: bool,
     focus_follows_mouse: FocusFollowsMouse,
-    diagnostic_summary_update: Task<()>,
     /// If a certain project item wants to get recreated with specific data, it can persist its data before the recreation here.
     pub project_item_restoration_data: HashMap<ProjectItemKind, Box<dyn Any + Send>>,
-    welcome_page: Option<Entity<crate::welcome::WelcomePage>>,
 
     pub in_center_group: bool,
 }
@@ -562,7 +527,6 @@ impl Pane {
             cx.on_focus_in(&focus_handle, window, Pane::focus_in),
             cx.on_focus_out(&focus_handle, window, Pane::focus_out),
             cx.observe_global_in::<SettingsStore>(window, Self::settings_changed),
-            cx.subscribe(&project, Self::project_events),
         ];
 
         let handle = cx.entity().downgrade();
@@ -602,7 +566,6 @@ impl Pane {
             can_split_predicate: None,
             can_toggle_zoom: true,
             should_display_tab_bar: Rc::new(|_, cx| TabBarSettings::get_global(cx).show),
-            should_display_welcome_page: false,
             render_tab_bar_buttons: Rc::new(default_render_tab_bar_buttons),
             render_tab_bar: Rc::new(Self::render_tab_bar),
             show_tab_bar_buttons: TabBarSettings::get_global(cx).show_tab_bar_buttons,
@@ -616,12 +579,9 @@ impl Pane {
             split_item_context_menu_handle: Default::default(),
             new_item_context_menu_handle: Default::default(),
             pinned_tab_count: 0,
-            diagnostics: Default::default(),
             zoom_out_on_close: true,
             focus_follows_mouse: WorkspaceSettings::get_global(cx).focus_follows_mouse,
-            diagnostic_summary_update: Task::ready(()),
             project_item_restoration_data: HashMap::default(),
-            welcome_page: None,
             in_center_group: false,
         }
     }
@@ -709,12 +669,6 @@ impl Pane {
                 self.last_focus_handle_by_item
                     .insert(active_item.item_id(), focused.downgrade());
             }
-        } else if self.should_display_welcome_page
-            && let Some(welcome_page) = self.welcome_page.as_ref()
-        {
-            if self.focus_handle.is_focused(window) {
-                welcome_page.read(cx).focus_handle(cx).focus(window, cx);
-            }
         }
     }
 
@@ -732,58 +686,6 @@ impl Pane {
         cx.notify();
     }
 
-    fn project_events(
-        &mut self,
-        _project: Entity<Project>,
-        event: &project::Event,
-        cx: &mut Context<Self>,
-    ) {
-        match event {
-            project::Event::DiskBasedDiagnosticsFinished { .. }
-            | project::Event::DiagnosticsUpdated { .. } => {
-                if ItemSettings::get_global(cx).show_diagnostics != ShowDiagnostics::Off {
-                    self.diagnostic_summary_update = cx.spawn(async move |this, cx| {
-                        cx.background_executor()
-                            .timer(Duration::from_millis(30))
-                            .await;
-                        this.update(cx, |this, cx| {
-                            this.update_diagnostics(cx);
-                            cx.notify();
-                        })
-                        .log_err();
-                    });
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn update_diagnostics(&mut self, cx: &mut Context<Self>) {
-        let Some(project) = self.project.upgrade() else {
-            return;
-        };
-        let show_diagnostics = ItemSettings::get_global(cx).show_diagnostics;
-        self.diagnostics = if show_diagnostics != ShowDiagnostics::Off {
-            project
-                .read(cx)
-                .diagnostic_summaries(false, cx)
-                .filter_map(|(project_path, _, diagnostic_summary)| {
-                    if diagnostic_summary.error_count > 0 {
-                        Some((project_path, DiagnosticSeverity::ERROR))
-                    } else if diagnostic_summary.warning_count > 0
-                        && show_diagnostics != ShowDiagnostics::Errors
-                    {
-                        Some((project_path, DiagnosticSeverity::WARNING))
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        } else {
-            HashMap::default()
-        }
-    }
-
     fn settings_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let tab_bar_settings = TabBarSettings::get_global(cx);
 
@@ -792,11 +694,6 @@ impl Pane {
         }
 
         self.show_tab_bar_buttons = tab_bar_settings.show_tab_bar_buttons;
-
-        if !PreviewTabsSettings::get_global(cx).enabled {
-            self.preview_item_id = None;
-            self.nav_history.0.lock().preview_item_id = None;
-        }
 
         let workspace_settings = WorkspaceSettings::get_global(cx);
 
@@ -809,7 +706,6 @@ impl Pane {
             self.close_items_on_settings_change(window, cx);
         }
 
-        self.update_diagnostics(cx);
         cx.notify();
     }
 
@@ -830,10 +726,6 @@ impl Pane {
         F: 'static + Fn(&Window, &mut Context<Pane>) -> bool,
     {
         self.should_display_tab_bar = Rc::new(should_display_tab_bar);
-    }
-
-    pub fn set_should_display_welcome_page(&mut self, should_display_welcome_page: bool) {
-        self.should_display_welcome_page = should_display_welcome_page;
     }
 
     pub fn set_can_split(
@@ -1022,8 +914,6 @@ impl Pane {
     }
 
     /// Marks the item with the given ID as the preview item.
-    /// This will be ignored if the global setting `preview_tabs` is disabled.
-    ///
     /// The old preview item (if there was one) is closed and its index is returned.
     pub fn replace_preview_item_id(
         &mut self,
@@ -1037,14 +927,10 @@ impl Pane {
     }
 
     /// Marks the item with the given ID as the preview item.
-    /// This will be ignored if the global setting `preview_tabs` is disabled.
-    ///
     /// This is a low-level method. Prefer `unpreview_item_if_preview()` or `set_new_preview_item()`.
-    pub(crate) fn set_preview_item_id(&mut self, item_id: Option<EntityId>, cx: &App) {
-        if item_id.is_none() || PreviewTabsSettings::get_global(cx).enabled {
-            self.preview_item_id = item_id;
-            self.nav_history.0.lock().preview_item_id = item_id;
-        }
+    pub(crate) fn set_preview_item_id(&mut self, item_id: Option<EntityId>, _cx: &App) {
+        self.preview_item_id = item_id;
+        self.nav_history.0.lock().preview_item_id = item_id;
     }
 
     /// Should only be used when deserializing a pane.
@@ -2271,10 +2157,7 @@ impl Pane {
         })?;
 
         // when saving a single buffer, we ignore whether or not it's dirty.
-        if save_intent == SaveIntent::Save
-            || save_intent == SaveIntent::FormatAndSave
-            || save_intent == SaveIntent::SaveWithoutFormat
-        {
+        if save_intent == SaveIntent::Save {
             is_dirty = true;
         }
 
@@ -2287,9 +2170,6 @@ impl Pane {
         if save_intent == SaveIntent::Overwrite {
             has_conflict = false;
         }
-
-        let should_format = save_intent != SaveIntent::SaveWithoutFormat;
-        let force_format = save_intent == SaveIntent::FormatAndSave;
 
         if has_conflict && can_save {
             if has_deleted_file && is_singleton {
@@ -2306,16 +2186,7 @@ impl Pane {
                 match answer.await {
                     Ok(0) => {
                         pane.update_in(cx, |_, window, cx| {
-                            item.save(
-                                SaveOptions {
-                                    format: should_format,
-                                    force_format,
-                                    autosave: false,
-                                },
-                                project,
-                                window,
-                                cx,
-                            )
+                            item.save(SaveOptions { autosave: false }, project, window, cx)
                         })?
                         .await?
                     }
@@ -2341,16 +2212,7 @@ impl Pane {
                 match answer.await {
                     Ok(0) => {
                         pane.update_in(cx, |_, window, cx| {
-                            item.save(
-                                SaveOptions {
-                                    format: should_format,
-                                    force_format,
-                                    autosave: false,
-                                },
-                                project,
-                                window,
-                                cx,
-                            )
+                            item.save(SaveOptions { autosave: false }, project, window, cx)
                         })?
                         .await?
                     }
@@ -2423,16 +2285,7 @@ impl Pane {
             if can_save {
                 pane.update_in(cx, |pane, window, cx| {
                     pane.unpreview_item_if_preview(item.item_id());
-                    item.save(
-                        SaveOptions {
-                            format: should_format,
-                            force_format,
-                            autosave: false,
-                        },
-                        project,
-                        window,
-                        cx,
-                    )
+                    item.save(SaveOptions { autosave: false }, project, window, cx)
                 })?
                 .await?;
             } else if can_save_as && is_singleton {
@@ -2441,14 +2294,10 @@ impl Pane {
                 let new_path = pane.update_in(cx, |pane, window, cx| {
                     pane.activate_item(item_ix, true, true, window, cx);
                     pane.workspace.update(cx, |workspace, cx| {
-                        let lister = if workspace.project().read(cx).is_local() {
-                            DirectoryLister::Local(
-                                workspace.project().clone(),
-                                workspace.app_state().fs.clone(),
-                            )
-                        } else {
-                            DirectoryLister::Project(workspace.project().clone())
-                        };
+                        let lister = DirectoryLister::Local(
+                            workspace.project().clone(),
+                            workspace.app_state().fs.clone(),
+                        );
                         workspace.prompt_for_new_path(lister, Some(suggested_name), window, cx)
                     })
                 })??;
@@ -2484,22 +2333,6 @@ impl Pane {
                 };
 
                 save_task.await?;
-                if should_format {
-                    pane.update_in(cx, |pane, window, cx| {
-                        pane.unpreview_item_if_preview(item.item_id());
-                        item.save(
-                            SaveOptions {
-                                format: true,
-                                autosave: false,
-                                force_format,
-                            },
-                            project,
-                            window,
-                            cx,
-                        )
-                    })?
-                    .await?;
-                }
                 return Ok(true);
             }
         }
@@ -2519,21 +2352,8 @@ impl Pane {
         window: &mut Window,
         cx: &mut App,
     ) -> Task<Result<()>> {
-        let format = !matches!(
-            item.workspace_settings(cx).autosave,
-            AutosaveSetting::AfterDelay { .. }
-        );
         if item.can_autosave(cx) {
-            item.save(
-                SaveOptions {
-                    format,
-                    force_format: false,
-                    autosave: true,
-                },
-                project,
-                window,
-                cx,
-            )
+            item.save(SaveOptions { autosave: true }, project, window, cx)
         } else {
             Task::ready(Ok(()))
         }
@@ -2790,54 +2610,9 @@ impl Pane {
             cx,
         );
 
-        let item_diagnostic = item
-            .project_path(cx)
-            .map_or(None, |project_path| self.diagnostics.get(&project_path));
-
-        let decorated_icon = item_diagnostic.map_or(None, |diagnostic| {
-            let icon = match item.tab_icon(window, cx) {
-                Some(icon) => icon,
-                None => return None,
-            };
-
-            let knockout_item_color = if is_active {
-                cx.theme().colors().tab_active_background
-            } else {
-                cx.theme().colors().tab_bar_background
-            };
-
-            let (icon_decoration, icon_color) = if matches!(diagnostic, &DiagnosticSeverity::ERROR)
-            {
-                (IconDecorationKind::X, Color::Error)
-            } else {
-                (IconDecorationKind::Triangle, Color::Warning)
-            };
-
-            Some(DecoratedIcon::new(
-                icon.size(IconSize::Small).color(Color::Muted),
-                Some(
-                    IconDecoration::new(icon_decoration, knockout_item_color, cx)
-                        .color(icon_color.color(cx))
-                        .position(Point {
-                            x: px(-2.),
-                            y: px(-2.),
-                        }),
-                ),
-            ))
-        });
-
-        let icon = if decorated_icon.is_none() {
-            match item_diagnostic {
-                Some(&DiagnosticSeverity::ERROR) => None,
-                Some(&DiagnosticSeverity::WARNING) => None,
-                _ => item
-                    .tab_icon(window, cx)
-                    .map(|icon| icon.color(Color::Muted)),
-            }
-            .map(|icon| icon.size(IconSize::Small))
-        } else {
-            None
-        };
+        let icon = item
+            .tab_icon(window, cx)
+            .map(|icon| icon.color(Color::Muted).size(IconSize::Small));
 
         let settings = ItemSettings::get_global(cx);
         let close_side = &settings.close_position;
@@ -2876,7 +2651,7 @@ impl Pane {
                 }))
         };
 
-        let has_file_icon = icon.is_some() | decorated_icon.is_some();
+        let has_file_icon = icon.is_some();
 
         let capability = item.capability(cx);
         let tab = Tab::new(ix)
@@ -3028,9 +2803,7 @@ impl Pane {
                 h_flex()
                     .id(("pane-tab-content", ix))
                     .gap_1()
-                    .children(if let Some(decorated_icon) = decorated_icon {
-                        Some(decorated_icon.into_any_element())
-                    } else if let Some(icon) = icon {
+                    .children(if let Some(icon) = icon {
                         Some(icon.into_any_element())
                     } else if !capability.editable() {
                         Some(read_only_toggle(capability == Capability::Read).into_any_element())
@@ -3269,16 +3042,6 @@ impl Pane {
 
                             let visible_in_project_panel = relative_path.is_some()
                                 && worktree.is_some_and(|worktree| worktree.read(cx).is_visible());
-                            let is_local = pane.read(cx).project.upgrade().is_some_and(|project| {
-                                let project = project.read(cx);
-                                project.is_local() || project.is_via_wsl_with_host_interop(cx)
-                            });
-                            let is_remote = pane
-                                .read(cx)
-                                .project
-                                .upgrade()
-                                .is_some_and(|project| project.read(cx).is_remote());
-
                             let entry_id = entry.to_proto();
 
                             menu = menu
@@ -3310,24 +3073,20 @@ impl Pane {
                                         }),
                                     )
                                 })
-                                .when(is_local, |menu| {
-                                    menu.when_some(reveal_path, |menu, reveal_path| {
-                                        menu.separator().entry(
-                                            ui::utils::reveal_in_file_manager_label(is_remote),
-                                            Some(Box::new(
-                                                zen_actions::editor::RevealInFileManager,
-                                            )),
-                                            window.handler_for(&pane, move |pane, _, cx| {
-                                                if let Some(project) = pane.project.upgrade() {
-                                                    project.update(cx, |project, cx| {
-                                                        project.reveal_path(&reveal_path, cx);
-                                                    });
-                                                } else {
-                                                    cx.reveal_path(&reveal_path);
-                                                }
-                                            }),
-                                        )
-                                    })
+                                .when_some(reveal_path, |menu, reveal_path| {
+                                    menu.separator().entry(
+                                        ui::utils::reveal_in_file_manager_label(false),
+                                        Some(Box::new(zen_actions::editor::RevealInFileManager)),
+                                        window.handler_for(&pane, move |pane, _, cx| {
+                                            if let Some(project) = pane.project.upgrade() {
+                                                project.update(cx, |project, cx| {
+                                                    project.reveal_path(&reveal_path, cx);
+                                                });
+                                            } else {
+                                                cx.reveal_path(&reveal_path);
+                                            }
+                                        }),
+                                    )
                                 })
                                 .map(pin_tab_entries)
                                 .when(visible_in_project_panel, |menu| {
@@ -3789,7 +3548,6 @@ impl Pane {
                     if let Some(split_direction) = split_direction {
                         to_pane = workspace.split_pane(to_pane, split_direction, window, cx);
                     }
-                    let database_id = workspace.database_id();
                     let was_pinned_in_from_pane = from_pane.read_with(cx, |pane, _| {
                         pane.index_for_item_id(item_id)
                             .is_some_and(|ix| pane.is_tab_pinned(ix))
@@ -3805,7 +3563,7 @@ impl Pane {
                             return;
                         };
                         if item.can_split(cx) {
-                            let task = item.clone_on_split(database_id, window, cx);
+                            let task = item.clone_on_split(window, cx);
                             let to_pane = to_pane.downgrade();
                             cx.spawn_in(window, async move |_, cx| {
                                 if let Some(item) = task.await {
@@ -4024,24 +3782,6 @@ impl Pane {
         let mut to_pane = cx.entity();
         let mut split_direction = self.drag_split_direction;
         let paths = paths.paths().to_vec();
-        let is_remote = self
-            .workspace
-            .update(cx, |workspace, cx| {
-                if workspace.project().read(cx).is_via_collab() {
-                    workspace.show_error(
-                        &anyhow::anyhow!("Cannot drop files on a remote project"),
-                        cx,
-                    );
-                    true
-                } else {
-                    false
-                }
-            })
-            .unwrap_or(true);
-        if is_remote {
-            return;
-        }
-
         self.workspace
             .update(cx, |workspace, cx| {
                 let fs = Arc::clone(workspace.project().read(cx).fs());
@@ -4202,9 +3942,6 @@ fn default_render_tab_bar_buttons(
                     Some(ContextMenu::build(window, cx, |menu, _, _| {
                         menu.action("New File", NewFile.boxed_clone())
                             .action("Open File", ToggleFileFinder::default().boxed_clone())
-                            .separator()
-                            .action("Search Project", DeploySearch::default().boxed_clone())
-                            .action("Search Symbols", ToggleProjectSymbols.boxed_clone())
                     }))
                 }),
         )
@@ -4316,11 +4053,6 @@ impl Render for Pane {
 
         let should_display_tab_bar = self.should_display_tab_bar.clone();
         let display_tab_bar = should_display_tab_bar(window, cx);
-        let Some(project) = self.project.upgrade() else {
-            return div().track_focus(&self.focus_handle(cx));
-        };
-        let is_local = project.read(cx).is_local();
-
         v_flex()
             .key_context(key_context)
             .track_focus(&self.focus_handle(cx))
@@ -4389,19 +4121,6 @@ impl Render for Pane {
             .on_action(cx.listener(Self::swap_item_right))
             .on_action(cx.listener(Self::toggle_pin_tab))
             .on_action(cx.listener(Self::unpin_all_tabs))
-            .when(PreviewTabsSettings::get_global(cx).enabled, |this| {
-                this.on_action(
-                    cx.listener(|pane: &mut Pane, _: &TogglePreviewTab, window, cx| {
-                        if let Some(active_item_id) = pane.active_item().map(|i| i.item_id()) {
-                            if pane.is_active_preview_item(active_item_id) {
-                                pane.unpreview_item_if_preview(active_item_id);
-                            } else {
-                                pane.replace_preview_item_id(active_item_id, window, cx);
-                            }
-                        }
-                    }),
-                )
-            })
             .on_action(
                 cx.listener(|pane: &mut Self, action: &CloseActiveItem, window, cx| {
                     pane.close_active_item(action, window, cx)
@@ -4493,9 +4212,7 @@ impl Render for Pane {
                     .overflow_hidden()
                     .on_drag_move::<DraggedTab>(cx.listener(Self::handle_drag_move))
                     .on_drag_move::<DraggedSelection>(cx.listener(Self::handle_drag_move))
-                    .when(is_local, |div| {
-                        div.on_drag_move::<ExternalPaths>(cx.listener(Self::handle_drag_move))
-                    })
+                    .on_drag_move::<ExternalPaths>(cx.listener(Self::handle_drag_move))
                     .map(|div| {
                         if let Some(item) = self.active_item() {
                             div.id("pane_placeholder")
@@ -4520,19 +4237,7 @@ impl Render for Pane {
                                         }
                                     },
                                 ));
-                            if !self.should_display_welcome_page {
-                                placeholder
-                            } else {
-                                if self.welcome_page.is_none() {
-                                    let workspace = self.workspace.clone();
-                                    self.welcome_page = Some(cx.new(|cx| {
-                                        crate::welcome::WelcomePage::new(
-                                            workspace, true, window, cx,
-                                        )
-                                    }));
-                                }
-                                placeholder.child(self.welcome_page.clone().unwrap())
-                            }
+                            placeholder
                         }
                         .focus_follows_mouse(self.focus_follows_mouse, cx)
                     })
@@ -4544,9 +4249,7 @@ impl Render for Pane {
                             .bg(cx.theme().colors().drop_target_background)
                             .group_drag_over::<DraggedTab>("", |style| style.visible())
                             .group_drag_over::<DraggedSelection>("", |style| style.visible())
-                            .when(is_local, |div| {
-                                div.group_drag_over::<ExternalPaths>("", |style| style.visible())
-                            })
+                            .group_drag_over::<ExternalPaths>("", |style| style.visible())
                             .when_some(self.can_drop_predicate.clone(), |this, p| {
                                 this.can_drop(move |a, window, cx| p(a, window, cx))
                             })
@@ -8054,74 +7757,6 @@ mod tests {
     }
 
     #[gpui::test]
-    async fn test_format_runs_on_first_save_of_new_file(cx: &mut TestAppContext) {
-        init_test(cx);
-        let fs = FakeFs::new(cx.executor());
-
-        let project = Project::test(fs, None, cx).await;
-        let (workspace, cx) =
-            cx.add_window_view(|window, cx| Workspace::test_new(project.clone(), window, cx));
-        let pane = workspace.read_with(cx, |workspace, _| workspace.active_pane().clone());
-
-        let item = add_labeled_item(&pane, "untitled", true, cx);
-        item.update(cx, |item, cx| {
-            item.project_items.push(TestProjectItem::new_untitled(cx));
-        });
-        assert_item_labels(&pane, ["untitled*^"], cx);
-
-        let close_task = pane.update_in(cx, |pane, window, cx| {
-            pane.close_item_by_id(item.item_id(), SaveIntent::Save, window, cx)
-        });
-
-        cx.executor().run_until_parked();
-        cx.simulate_new_path_selection(|_| Some(Default::default()));
-        close_task.await.unwrap();
-
-        item.read_with(cx, |item, _| {
-            assert_eq!(item.save_as_count, 1);
-            assert_eq!(
-                item.save_count, 1,
-                "formatter should run after the file is given a path on first save"
-            );
-        });
-    }
-
-    #[gpui::test]
-    async fn test_format_does_not_run_on_first_save_when_save_without_format(
-        cx: &mut TestAppContext,
-    ) {
-        init_test(cx);
-        let fs = FakeFs::new(cx.executor());
-
-        let project = Project::test(fs, None, cx).await;
-        let (workspace, cx) =
-            cx.add_window_view(|window, cx| Workspace::test_new(project.clone(), window, cx));
-        let pane = workspace.read_with(cx, |workspace, _| workspace.active_pane().clone());
-
-        let item = add_labeled_item(&pane, "untitled", true, cx);
-        item.update(cx, |item, cx| {
-            item.project_items.push(TestProjectItem::new_untitled(cx));
-        });
-        assert_item_labels(&pane, ["untitled*^"], cx);
-
-        let close_task = pane.update_in(cx, |pane, window, cx| {
-            pane.close_item_by_id(item.item_id(), SaveIntent::SaveWithoutFormat, window, cx)
-        });
-
-        cx.executor().run_until_parked();
-        cx.simulate_new_path_selection(|_| Some(Default::default()));
-        close_task.await.unwrap();
-
-        item.read_with(cx, |item, _| {
-            assert_eq!(item.save_as_count, 1);
-            assert_eq!(
-                item.save_count, 0,
-                "formatter should not run when SaveWithoutFormat is used"
-            );
-        });
-    }
-
-    #[gpui::test]
     async fn test_discard_does_not_reload_multibuffer(cx: &mut TestAppContext) {
         init_test(cx);
         let fs = FakeFs::new(cx.executor());
@@ -8739,12 +8374,6 @@ mod tests {
     #[gpui::test]
     async fn test_reopening_closed_item_after_unpreview(cx: &mut TestAppContext) {
         init_test(cx);
-
-        cx.update_global::<SettingsStore, ()>(|store, cx| {
-            store.update_user_settings(cx, |settings| {
-                settings.preview_tabs.get_or_insert_default().enabled = Some(true);
-            });
-        });
 
         let fs = FakeFs::new(cx.executor());
         let project = Project::test(fs, None, cx).await;

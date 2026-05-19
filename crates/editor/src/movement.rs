@@ -1,5 +1,4 @@
-//! Movement module contains helper functions for calculating intended position
-//! in editor given a given motion (e.g. it handles converting a "move left" command into coordinates in editor). It is exposed mostly for use by vim crate.
+//! Movement module contains helper functions for calculating intended positions in the editor.
 
 use super::{Bias, DisplayPoint, DisplaySnapshot, SelectionGoal, ToDisplayPoint};
 use crate::{
@@ -10,9 +9,24 @@ use gpui::{Pixels, WindowTextSystem};
 use language::{CharClassifier, Point};
 use multi_buffer::{MultiBufferOffset, MultiBufferRow, MultiBufferSnapshot};
 use serde::Deserialize;
-use workspace::searchable::Direction;
 
 use std::{ops::Range, sync::Arc};
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Direction {
+    Prev,
+    #[default]
+    Next,
+}
+
+impl Direction {
+    pub fn opposite(&self) -> Self {
+        match self {
+            Direction::Prev => Direction::Next,
+            Direction::Next => Direction::Prev,
+        }
+    }
+}
 
 /// Defines search strategy for items in `movement` module.
 /// `FindRange::SingeLine` only looks for a match on a single line at a time, whereas
@@ -940,7 +954,6 @@ mod tests {
     use gpui::{AppContext as _, font, px};
     use language::Capability;
     use multi_buffer::PathKey;
-    use project::project_settings::DiagnosticSeverity;
     use settings::SettingsStore;
     use util::post_inc;
 
@@ -1074,7 +1087,6 @@ mod tests {
                 1,
                 1,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             )
         });
@@ -1276,7 +1288,6 @@ mod tests {
                     0,
                     1,
                     FoldPlaceholder::test(),
-                    DiagnosticSeverity::Warning,
                     cx,
                 )
             });
@@ -1431,7 +1442,6 @@ mod tests {
                 0,
                 1,
                 FoldPlaceholder::test(),
-                DiagnosticSeverity::Warning,
                 cx,
             )
         });

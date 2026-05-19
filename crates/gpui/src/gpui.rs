@@ -39,7 +39,6 @@ pub mod profiler;
 #[expect(missing_docs)]
 pub mod queue;
 mod scene;
-mod shared_uri;
 mod style;
 mod styled;
 mod subscription;
@@ -93,7 +92,6 @@ pub use gpui_macros::{
 };
 pub use gpui_shared_string::*;
 pub use gpui_util::arc_cow::ArcCow;
-pub use http_client;
 pub use input::*;
 pub use inspector::*;
 pub use interactive::*;
@@ -106,7 +104,6 @@ pub use profiler::*;
 pub use queue::{PriorityQueueReceiver, PriorityQueueSender};
 pub use refineable::*;
 pub use scene::*;
-pub use shared_uri::*;
 use std::{any::Any, future::Future};
 pub use style::*;
 pub use styled::*;

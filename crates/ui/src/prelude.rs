@@ -1,16 +1,12 @@
 //! The prelude of this crate. When building UI in Zed you almost always want to import this.
 
+pub use documented::Documented;
 pub use gpui::prelude::*;
 pub use gpui::{
     AbsoluteLength, AnyElement, App, Context, DefiniteLength, Div, Element, ElementId,
     InteractiveElement, ParentElement, Pixels, Rems, RenderOnce, SharedString, Styled, Window, div,
     px, relative, rems,
 };
-
-pub use component::{
-    Component, ComponentScope, example_group, example_group_with_title, single_example,
-};
-pub use ui_macros::RegisterComponent;
 
 pub use crate::DynamicSpacing;
 pub use crate::animation::{AnimationDirection, AnimationDuration, DefaultAnimations};

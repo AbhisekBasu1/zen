@@ -1,24 +1,12 @@
-use anyhow::Context as _;
 use collections::HashMap;
 use fs::Fs;
-use git::repository::DEFAULT_WORKTREE_DIRECTORY;
-use gpui::{AsyncApp, BorrowAppContext, Context, Entity, EventEmitter, Subscription};
-use lsp::{DEFAULT_LSP_REQUEST_TIMEOUT_SECS, LanguageServerName};
+use gpui::{BorrowAppContext, Context, Entity, EventEmitter, Subscription};
 use paths::{EDITORCONFIG_NAME, local_settings_file_relative_path};
-use rpc::{
-    AnyProtoClient, TypedEnvelope,
-    proto::{self, REMOTE_SERVER_PROJECT_ID},
-};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-pub use settings::BinarySettings;
-pub use settings::DirenvSettings;
-pub use settings::LspSettings;
 use settings::{
     EditorconfigEvent, InvalidSettingsError, LocalSettingsKind, LocalSettingsPath, RegisterSetting,
-    SemanticTokenRules, Settings, SettingsStore,
+    Settings, SettingsStore,
 };
-use std::{cell::OnceCell, collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{cell::OnceCell, collections::BTreeMap, path::PathBuf, sync::Arc};
 use util::{ResultExt, rel_path::RelPath};
 use worktree::{PathChange, UpdatedEntriesSet, Worktree, WorktreeId};
 
@@ -29,35 +17,6 @@ use crate::{
 
 #[derive(Debug, Clone, RegisterSetting)]
 pub struct ProjectSettings {
-    /// Configuration for language servers.
-    ///
-    /// The following settings can be overridden for specific language servers:
-    /// - initialization_options
-    ///
-    /// To override settings for a language, add an entry for that language server's
-    /// name to the lsp value.
-    /// Default: null
-    // todo(settings-follow-up)
-    // We should change to use a non content type (settings::LspSettings is a content type)
-    // Note: Will either require merging with defaults, which also requires deciding where the defaults come from,
-    //       or case by case deciding which fields are optional and which are actually required.
-    pub lsp: HashMap<LanguageServerName, settings::LspSettings>,
-
-    /// Common language server settings.
-    pub global_lsp_settings: GlobalLspSettings,
-
-    /// Configuration for Diagnostics-related features.
-    pub diagnostics: DiagnosticsSettings,
-
-    /// Configuration for Git-related features
-    pub git: GitSettings,
-
-    /// Configuration for Node-related features
-    pub node: NodeBinarySettings,
-
-    /// Configuration for how direnv configuration should be loaded
-    pub load_direnv: DirenvSettings,
-
     /// Configuration for session-related features
     pub session: SessionSettings,
 }
@@ -79,495 +38,15 @@ pub struct SessionSettings {
     pub trust_all_worktrees: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct NodeBinarySettings {
-    /// The path to the Node binary.
-    pub path: Option<String>,
-    /// The path to the npm binary Zed should use (defaults to `.path/../npm`).
-    pub npm_path: Option<String>,
-    /// If enabled, Zed will download its own copy of Node.
-    pub ignore_system_version: bool,
-}
-
-impl From<settings::NodeBinarySettings> for NodeBinarySettings {
-    fn from(settings: settings::NodeBinarySettings) -> Self {
-        Self {
-            path: settings.path,
-            npm_path: settings.npm_path,
-            ignore_system_version: settings.ignore_system_version.unwrap_or(false),
-        }
-    }
-}
-
-/// Common language server settings.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(default)]
-pub struct GlobalLspSettings {
-    /// Whether to show the LSP servers button in the status bar.
-    ///
-    /// Default: `true`
-    pub button: bool,
-    /// The maximum amount of time to wait for responses from language servers, in seconds.
-    /// A value of `0` will result in no timeout being applied (causing all LSP responses to wait
-    /// indefinitely until completed).
-    /// This should not be used outside of serialization/de-serialization in favor of get_request_timeout.
-    ///
-    /// Default: `120`
-    pub request_timeout: u64,
-    pub notifications: LspNotificationSettings,
-
-    /// Rules for highlighting semantic tokens.
-    pub semantic_token_rules: SemanticTokenRules,
-}
-
-impl Default for GlobalLspSettings {
-    fn default() -> Self {
-        Self {
-            button: true,
-            request_timeout: DEFAULT_LSP_REQUEST_TIMEOUT_SECS,
-            notifications: LspNotificationSettings::default(),
-            semantic_token_rules: SemanticTokenRules::default(),
-        }
-    }
-}
-
-impl GlobalLspSettings {
-    /// Returns the timeout duration for LSP-related interactions, or Duration::ZERO if no timeout should be applied.
-    /// Zero durations are treated as no timeout by language servers, so code using this in an async context can
-    /// simply call unwrap_or_default.
-    pub const fn get_request_timeout(&self) -> Duration {
-        Duration::from_secs(self.request_timeout)
-    }
-}
-
-#[derive(Deserialize, Serialize, Clone, PartialEq, Eq, JsonSchema, Debug)]
-#[serde(tag = "source", rename_all = "snake_case")]
-pub struct LspNotificationSettings {
-    /// Timeout in milliseconds for automatically dismissing language server notifications.
-    /// Set to 0 to disable auto-dismiss.
-    ///
-    /// Default: 5000
-    pub dismiss_timeout_ms: Option<u64>,
-}
-
-impl Default for LspNotificationSettings {
-    fn default() -> Self {
-        Self {
-            dismiss_timeout_ms: Some(5000),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub enum DiagnosticSeverity {
-    // No diagnostics are shown.
-    Off,
-    Error,
-    Warning,
-    Info,
-    Hint,
-}
-
-impl DiagnosticSeverity {
-    pub fn into_lsp(self) -> Option<lsp::DiagnosticSeverity> {
-        match self {
-            DiagnosticSeverity::Off => None,
-            DiagnosticSeverity::Error => Some(lsp::DiagnosticSeverity::ERROR),
-            DiagnosticSeverity::Warning => Some(lsp::DiagnosticSeverity::WARNING),
-            DiagnosticSeverity::Info => Some(lsp::DiagnosticSeverity::INFORMATION),
-            DiagnosticSeverity::Hint => Some(lsp::DiagnosticSeverity::HINT),
-        }
-    }
-}
-
-impl From<settings::DiagnosticSeverityContent> for DiagnosticSeverity {
-    fn from(severity: settings::DiagnosticSeverityContent) -> Self {
-        match severity {
-            settings::DiagnosticSeverityContent::Off => DiagnosticSeverity::Off,
-            settings::DiagnosticSeverityContent::Error => DiagnosticSeverity::Error,
-            settings::DiagnosticSeverityContent::Warning => DiagnosticSeverity::Warning,
-            settings::DiagnosticSeverityContent::Info => DiagnosticSeverity::Info,
-            settings::DiagnosticSeverityContent::Hint => DiagnosticSeverity::Hint,
-            settings::DiagnosticSeverityContent::All => DiagnosticSeverity::Hint,
-        }
-    }
-}
-
-/// Determines the severity of the diagnostic that should be moved to.
-#[derive(PartialEq, PartialOrd, Clone, Copy, Debug, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum GoToDiagnosticSeverity {
-    /// Errors
-    Error = 3,
-    /// Warnings
-    Warning = 2,
-    /// Information
-    Information = 1,
-    /// Hints
-    Hint = 0,
-}
-
-impl From<lsp::DiagnosticSeverity> for GoToDiagnosticSeverity {
-    fn from(severity: lsp::DiagnosticSeverity) -> Self {
-        match severity {
-            lsp::DiagnosticSeverity::ERROR => Self::Error,
-            lsp::DiagnosticSeverity::WARNING => Self::Warning,
-            lsp::DiagnosticSeverity::INFORMATION => Self::Information,
-            lsp::DiagnosticSeverity::HINT => Self::Hint,
-            _ => Self::Error,
-        }
-    }
-}
-
-impl GoToDiagnosticSeverity {
-    pub fn min() -> Self {
-        Self::Hint
-    }
-
-    pub fn max() -> Self {
-        Self::Error
-    }
-}
-
-/// Allows filtering diagnostics that should be moved to.
-#[derive(PartialEq, Clone, Copy, Debug, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum GoToDiagnosticSeverityFilter {
-    /// Move to diagnostics of a specific severity.
-    Only(GoToDiagnosticSeverity),
-
-    /// Specify a range of severities to include.
-    Range {
-        /// Minimum severity to move to. Defaults no "error".
-        #[serde(default = "GoToDiagnosticSeverity::min")]
-        min: GoToDiagnosticSeverity,
-        /// Maximum severity to move to. Defaults to "hint".
-        #[serde(default = "GoToDiagnosticSeverity::max")]
-        max: GoToDiagnosticSeverity,
-    },
-}
-
-impl Default for GoToDiagnosticSeverityFilter {
-    fn default() -> Self {
-        Self::Range {
-            min: GoToDiagnosticSeverity::min(),
-            max: GoToDiagnosticSeverity::max(),
-        }
-    }
-}
-
-impl GoToDiagnosticSeverityFilter {
-    pub fn matches(&self, severity: lsp::DiagnosticSeverity) -> bool {
-        let severity: GoToDiagnosticSeverity = severity.into();
-        match self {
-            Self::Only(target) => *target == severity,
-            Self::Range { min, max } => severity >= *min && severity <= *max,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct GitSettings {
-    /// Whether or not git integration is enabled.
-    ///
-    /// Default: true
-    pub enabled: GitEnabledSettings,
-    /// Whether or not to show the git gutter.
-    ///
-    /// Default: tracked_files
-    pub git_gutter: settings::GitGutterSetting,
-    /// Sets the debounce threshold (in milliseconds) after which changes are reflected in the git gutter.
-    ///
-    /// Default: 0
-    pub gutter_debounce: u64,
-    /// Whether or not to show git blame data inline in
-    /// the currently focused line.
-    ///
-    /// Default: on
-    pub inline_blame: InlineBlameSettings,
-    /// Git blame settings.
-    pub blame: BlameSettings,
-    /// Which information to show in the branch picker.
-    ///
-    /// Default: on
-    pub branch_picker: BranchPickerSettings,
-    /// How hunks are displayed visually in the editor.
-    ///
-    /// Default: staged_hollow
-    pub hunk_style: settings::GitHunkStyleSetting,
-    /// How file paths are displayed in the git gutter.
-    ///
-    /// Default: file_name_first
-    pub path_style: GitPathStyle,
-    /// Directory where git worktrees are created, relative to the repository
-    /// working directory. When the resolved directory is outside the project
-    /// root, the project's directory name is automatically appended so that
-    /// sibling repos don't collide.
-    ///
-    /// Default: ../worktrees
-    pub worktree_directory: String,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct GitEnabledSettings {
-    /// Whether git integration is enabled for showing git status.
-    ///
-    /// Default: true
-    pub status: bool,
-    /// Whether git integration is enabled for showing diffs.
-    ///
-    /// Default: true
-    pub diff: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Default)]
-pub enum GitPathStyle {
-    #[default]
-    FileNameFirst,
-    FilePathFirst,
-}
-
-impl From<settings::GitPathStyle> for GitPathStyle {
-    fn from(style: settings::GitPathStyle) -> Self {
-        match style {
-            settings::GitPathStyle::FileNameFirst => GitPathStyle::FileNameFirst,
-            settings::GitPathStyle::FilePathFirst => GitPathStyle::FilePathFirst,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct InlineBlameSettings {
-    /// Whether or not to show git blame data inline in
-    /// the currently focused line.
-    ///
-    /// Default: true
-    pub enabled: bool,
-    /// Whether to only show the inline blame information
-    /// after a delay once the cursor stops moving.
-    ///
-    /// Default: 0
-    pub delay_ms: settings::DelayMs,
-    /// The amount of padding between the end of the source line and the start
-    /// of the inline blame in units of columns.
-    ///
-    /// Default: 7
-    pub padding: u32,
-    /// The minimum column number to show the inline blame information at
-    ///
-    /// Default: 0
-    pub min_column: u32,
-    /// Whether to show commit summary as part of the inline blame.
-    ///
-    /// Default: false
-    pub show_commit_summary: bool,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct BlameSettings {
-    /// Whether to show the avatar of the author of the commit.
-    ///
-    /// Default: true
-    pub show_avatar: bool,
-}
-
-impl GitSettings {
-    pub fn inline_blame_delay(&self) -> Option<Duration> {
-        if self.inline_blame.delay_ms.0 > 0 {
-            Some(Duration::from_millis(self.inline_blame.delay_ms.0))
-        } else {
-            None
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct BranchPickerSettings {
-    /// Whether to show author name as part of the commit information.
-    ///
-    /// Default: false
-    #[serde(default)]
-    pub show_author_name: bool,
-}
-
-impl Default for BranchPickerSettings {
-    fn default() -> Self {
-        Self {
-            show_author_name: true,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct DiagnosticsSettings {
-    /// Whether to show the project diagnostics button in the status bar.
-    pub button: bool,
-
-    /// Whether or not to include warning diagnostics.
-    pub include_warnings: bool,
-
-    /// Settings for using LSP pull diagnostics mechanism in Zed.
-    pub lsp_pull_diagnostics: LspPullDiagnosticsSettings,
-
-    /// Settings for showing inline diagnostics.
-    pub inline: InlineDiagnosticsSettings,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct InlineDiagnosticsSettings {
-    /// Whether or not to show inline diagnostics
-    ///
-    /// Default: false
-    pub enabled: bool,
-    /// Whether to only show the inline diagnostics after a delay after the
-    /// last editor event.
-    ///
-    /// Default: 150
-    pub update_debounce_ms: u64,
-    /// The amount of padding between the end of the source line and the start
-    /// of the inline diagnostic in units of columns.
-    ///
-    /// Default: 4
-    pub padding: u32,
-    /// The minimum column to display inline diagnostics. This setting can be
-    /// used to horizontally align inline diagnostics at some position. Lines
-    /// longer than this value will still push diagnostics further to the right.
-    ///
-    /// Default: 0
-    pub min_column: u32,
-
-    pub max_severity: Option<DiagnosticSeverity>,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-pub struct LspPullDiagnosticsSettings {
-    /// Whether to pull for diagnostics or not.
-    ///
-    /// Default: true
-    pub enabled: bool,
-    /// Minimum time to wait before pulling diagnostics from the language server(s).
-    /// 0 turns the debounce off.
-    ///
-    /// Default: 50
-    pub debounce_ms: u64,
-}
-
 impl Settings for ProjectSettings {
     fn from_settings(content: &settings::SettingsContent) -> Self {
-        let project = &content.project.clone();
-        let diagnostics = content.diagnostics.as_ref().unwrap();
-        let lsp_pull_diagnostics = diagnostics.lsp_pull_diagnostics.as_ref().unwrap();
-        let inline_diagnostics = diagnostics.inline.as_ref().unwrap();
-
-        let git = content.git.as_ref().unwrap();
-        let git_enabled = {
-            GitEnabledSettings {
-                status: git.enabled.as_ref().unwrap().is_git_status_enabled(),
-                diff: git.enabled.as_ref().unwrap().is_git_diff_enabled(),
-            }
-        };
-        let git_settings = GitSettings {
-            enabled: git_enabled,
-            git_gutter: git.git_gutter.unwrap(),
-            gutter_debounce: git.gutter_debounce.unwrap_or_default(),
-            inline_blame: {
-                let inline = git.inline_blame.unwrap();
-                InlineBlameSettings {
-                    enabled: inline.enabled.unwrap(),
-                    delay_ms: inline.delay_ms.unwrap(),
-                    padding: inline.padding.unwrap(),
-                    min_column: inline.min_column.unwrap(),
-                    show_commit_summary: inline.show_commit_summary.unwrap(),
-                }
-            },
-            blame: {
-                let blame = git.blame.unwrap();
-                BlameSettings {
-                    show_avatar: blame.show_avatar.unwrap(),
-                }
-            },
-            branch_picker: {
-                let branch_picker = git.branch_picker.unwrap();
-                BranchPickerSettings {
-                    show_author_name: branch_picker.show_author_name.unwrap(),
-                }
-            },
-            hunk_style: git.hunk_style.unwrap(),
-            path_style: git.path_style.unwrap().into(),
-            worktree_directory: git
-                .worktree_directory
-                .clone()
-                .unwrap_or_else(|| DEFAULT_WORKTREE_DIRECTORY.to_string()),
-        };
         Self {
-            lsp: project
-                .lsp
-                .clone()
-                .into_iter()
-                .map(|(key, value)| (LanguageServerName(key.into()), value))
-                .collect(),
-            global_lsp_settings: GlobalLspSettings {
-                button: content
-                    .global_lsp_settings
-                    .as_ref()
-                    .unwrap()
-                    .button
-                    .unwrap(),
-                request_timeout: content
-                    .global_lsp_settings
-                    .as_ref()
-                    .unwrap()
-                    .request_timeout
-                    .unwrap(),
-                notifications: LspNotificationSettings {
-                    dismiss_timeout_ms: content
-                        .global_lsp_settings
-                        .as_ref()
-                        .unwrap()
-                        .notifications
-                        .as_ref()
-                        .unwrap()
-                        .dismiss_timeout_ms,
-                },
-                semantic_token_rules: content
-                    .global_lsp_settings
-                    .as_ref()
-                    .unwrap()
-                    .semantic_token_rules
-                    .as_ref()
-                    .unwrap()
-                    .clone(),
-            },
-            diagnostics: DiagnosticsSettings {
-                button: diagnostics.button.unwrap(),
-                include_warnings: diagnostics.include_warnings.unwrap(),
-                lsp_pull_diagnostics: LspPullDiagnosticsSettings {
-                    enabled: lsp_pull_diagnostics.enabled.unwrap(),
-                    debounce_ms: lsp_pull_diagnostics.debounce_ms.unwrap().0,
-                },
-                inline: InlineDiagnosticsSettings {
-                    enabled: inline_diagnostics.enabled.unwrap(),
-                    update_debounce_ms: inline_diagnostics.update_debounce_ms.unwrap().0,
-                    padding: inline_diagnostics.padding.unwrap(),
-                    min_column: inline_diagnostics.min_column.unwrap(),
-                    max_severity: inline_diagnostics.max_severity.map(Into::into),
-                },
-            },
-            git: git_settings,
-            node: content.node.clone().unwrap().into(),
-            load_direnv: project.load_direnv.clone().unwrap(),
             session: SessionSettings {
                 restore_unsaved_buffers: content.session.unwrap().restore_unsaved_buffers.unwrap(),
                 trust_all_worktrees: content.session.unwrap().trust_all_worktrees.unwrap(),
             },
         }
     }
-}
-
-pub enum SettingsObserverMode {
-    Local(Arc<dyn Fs>),
-    Remote { via_collab: bool },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -578,28 +57,17 @@ pub enum SettingsObserverEvent {
 impl EventEmitter<SettingsObserverEvent> for SettingsObserver {}
 
 pub struct SettingsObserver {
-    mode: SettingsObserverMode,
-    downstream_client: Option<AnyProtoClient>,
+    fs: Arc<dyn Fs>,
     worktree_store: Entity<WorktreeStore>,
-    project_id: u64,
     pending_local_settings:
         HashMap<PathTrust, BTreeMap<(WorktreeId, Arc<RelPath>), Option<String>>>,
     _trusted_worktrees_watcher: Option<Subscription>,
-    _user_settings_watcher: Option<Subscription>,
     _editorconfig_watcher: Option<Subscription>,
 }
 
-/// SettingsObserver observers changes to .zed/settings.json files in local worktrees
-/// (or the equivalent protobuf messages from upstream) and updates local settings
-/// and sends notifications downstream.
-/// In ssh mode it also monitors ~/.config/zed/settings.json and sends the content
-/// upstream.
+/// SettingsObserver observes changes to .zed/settings.json files in local worktrees
+/// and updates local settings.
 impl SettingsObserver {
-    pub fn init(client: &AnyProtoClient) {
-        client.add_entity_message_handler(Self::handle_update_worktree_settings);
-        client.add_entity_message_handler(Self::handle_update_user_settings);
-    }
-
     pub fn new_local(
         fs: Arc<dyn Fs>,
         worktree_store: Entity<WorktreeStore>,
@@ -632,25 +100,6 @@ impl SettingsObserver {
                                             &settings_contents,
                                             cx,
                                         );
-                                        if let Some(downstream_client) =
-                                            &settings_observer.downstream_client
-                                        {
-                                            downstream_client
-                                                .send(proto::UpdateWorktreeSettings {
-                                                    project_id: settings_observer.project_id,
-                                                    worktree_id: worktree_id.to_proto(),
-                                                    path: path.to_proto(),
-                                                    content: settings_contents,
-                                                    kind: Some(
-                                                        local_settings_kind_to_proto(
-                                                            LocalSettingsKind::Settings,
-                                                        )
-                                                        .into(),
-                                                    ),
-                                                    outside_worktree: Some(false),
-                                                })
-                                                .log_err();
-                                        }
                                     }
                                 }
                             }
@@ -682,7 +131,6 @@ impl SettingsObserver {
                                 LocalSettingsKind::Editorconfig,
                                 content.clone(),
                             )],
-                            false,
                             cx,
                         );
                     }
@@ -692,168 +140,11 @@ impl SettingsObserver {
 
         Self {
             worktree_store,
-            mode: SettingsObserverMode::Local(fs.clone()),
-            downstream_client: None,
+            fs,
             _trusted_worktrees_watcher,
             pending_local_settings: HashMap::default(),
-            _user_settings_watcher: None,
             _editorconfig_watcher: Some(_editorconfig_watcher),
-            project_id: REMOTE_SERVER_PROJECT_ID,
         }
-    }
-
-    pub fn new_remote(
-        _fs: Arc<dyn Fs>,
-        worktree_store: Entity<WorktreeStore>,
-        upstream_client: Option<AnyProtoClient>,
-        via_collab: bool,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let mut user_settings_watcher = None;
-        if cx.try_global::<SettingsStore>().is_some() {
-            if let Some(upstream_client) = upstream_client {
-                let mut user_settings = None;
-                user_settings_watcher = Some(cx.observe_global::<SettingsStore>(move |_, cx| {
-                    if let Some(new_settings) = cx.global::<SettingsStore>().raw_user_settings() {
-                        if Some(new_settings) != user_settings.as_ref() {
-                            if let Some(new_settings_string) =
-                                serde_json::to_string(new_settings).ok()
-                            {
-                                user_settings = Some(new_settings.clone());
-                                upstream_client
-                                    .send(proto::UpdateUserSettings {
-                                        project_id: REMOTE_SERVER_PROJECT_ID,
-                                        contents: new_settings_string,
-                                    })
-                                    .log_err();
-                            }
-                        }
-                    }
-                }));
-            }
-        };
-
-        Self {
-            worktree_store,
-            mode: SettingsObserverMode::Remote { via_collab },
-            downstream_client: None,
-            project_id: REMOTE_SERVER_PROJECT_ID,
-            _trusted_worktrees_watcher: None,
-            pending_local_settings: HashMap::default(),
-            _user_settings_watcher: user_settings_watcher,
-            _editorconfig_watcher: None,
-        }
-    }
-
-    pub fn shared(
-        &mut self,
-        project_id: u64,
-        downstream_client: AnyProtoClient,
-        cx: &mut Context<Self>,
-    ) {
-        self.project_id = project_id;
-        self.downstream_client = Some(downstream_client.clone());
-
-        let store = cx.global::<SettingsStore>();
-        for worktree in self.worktree_store.read(cx).worktrees() {
-            let worktree_id = worktree.read(cx).id().to_proto();
-            for (path, content) in store.local_settings(worktree.read(cx).id()) {
-                let content = serde_json::to_string(&content).unwrap();
-                downstream_client
-                    .send(proto::UpdateWorktreeSettings {
-                        project_id,
-                        worktree_id,
-                        path: path.to_proto(),
-                        content: Some(content),
-                        kind: Some(
-                            local_settings_kind_to_proto(LocalSettingsKind::Settings).into(),
-                        ),
-                        outside_worktree: Some(false),
-                    })
-                    .log_err();
-            }
-            for (path, content, _) in store
-                .editorconfig_store
-                .read(cx)
-                .local_editorconfig_settings(worktree.read(cx).id())
-            {
-                downstream_client
-                    .send(proto::UpdateWorktreeSettings {
-                        project_id,
-                        worktree_id,
-                        path: path.to_proto(),
-                        content: Some(content.to_owned()),
-                        kind: Some(
-                            local_settings_kind_to_proto(LocalSettingsKind::Editorconfig).into(),
-                        ),
-                        outside_worktree: Some(path.is_outside_worktree()),
-                    })
-                    .log_err();
-            }
-        }
-    }
-
-    pub fn unshared(&mut self, _: &mut Context<Self>) {
-        self.downstream_client = None;
-    }
-
-    async fn handle_update_worktree_settings(
-        this: Entity<Self>,
-        envelope: TypedEnvelope<proto::UpdateWorktreeSettings>,
-        mut cx: AsyncApp,
-    ) -> anyhow::Result<()> {
-        let kind = match envelope.payload.kind {
-            Some(kind) => proto::LocalSettingsKind::from_i32(kind)
-                .with_context(|| format!("unknown kind {kind}"))?,
-            None => proto::LocalSettingsKind::Settings,
-        };
-
-        let path = LocalSettingsPath::from_proto(
-            &envelope.payload.path,
-            envelope.payload.outside_worktree.unwrap_or(false),
-        )?;
-
-        this.update(&mut cx, |this, cx| {
-            let is_via_collab = match &this.mode {
-                SettingsObserverMode::Local(..) => false,
-                SettingsObserverMode::Remote { via_collab } => *via_collab,
-            };
-            let worktree_id = WorktreeId::from_proto(envelope.payload.worktree_id);
-            let Some(worktree) = this
-                .worktree_store
-                .read(cx)
-                .worktree_for_id(worktree_id, cx)
-            else {
-                return;
-            };
-
-            this.update_settings(
-                worktree,
-                [(
-                    path,
-                    local_settings_kind_from_proto(kind),
-                    envelope.payload.content,
-                )],
-                is_via_collab,
-                cx,
-            );
-        });
-        Ok(())
-    }
-
-    async fn handle_update_user_settings(
-        _: Entity<Self>,
-        envelope: TypedEnvelope<proto::UpdateUserSettings>,
-        cx: AsyncApp,
-    ) -> anyhow::Result<()> {
-        cx.update_global(|settings_store: &mut SettingsStore, cx| {
-            settings_store
-                .set_user_settings(&envelope.payload.contents, cx)
-                .result()
-                .context("setting new user settings")?;
-            anyhow::Ok(())
-        })?;
-        Ok(())
     }
 
     fn on_worktree_store_event(
@@ -885,10 +176,6 @@ impl SettingsObserver {
         changes: &UpdatedEntriesSet,
         cx: &mut Context<Self>,
     ) {
-        let SettingsObserverMode::Local(fs) = &self.mode else {
-            return;
-        };
-
         let mut settings_contents = Vec::new();
         for (path, _, change) in changes.iter() {
             let (settings_dir, kind) = if path.ends_with(local_settings_file_relative_path()) {
@@ -905,7 +192,7 @@ impl SettingsObserver {
                 if matches!(change, PathChange::Loaded) || matches!(change, PathChange::Added) {
                     let worktree_id = worktree.read(cx).id();
                     let worktree_path = worktree.read(cx).abs_path();
-                    let fs = fs.clone();
+                    let fs = self.fs.clone();
                     cx.update_global::<SettingsStore, _>(|store, cx| {
                         store
                             .editorconfig_store
@@ -925,7 +212,7 @@ impl SettingsObserver {
             };
 
             let removed = change == &PathChange::Removed;
-            let fs = fs.clone();
+            let fs = self.fs.clone();
             let abs_path = worktree.read(cx).absolutize(path);
             settings_contents.push(async move {
                 (
@@ -965,7 +252,6 @@ impl SettingsObserver {
                                 content.and_then(|c| c.log_err()),
                             )
                         }),
-                        false,
                         cx,
                     )
                 })
@@ -980,18 +266,11 @@ impl SettingsObserver {
         settings_contents: impl IntoIterator<
             Item = (LocalSettingsPath, LocalSettingsKind, Option<String>),
         >,
-        is_via_collab: bool,
         cx: &mut Context<Self>,
     ) {
         let worktree_id = worktree.read(cx).id();
-        let remote_worktree_id = worktree.read(cx).id();
-        let can_trust_worktree = if is_via_collab {
-            OnceCell::from(true)
-        } else {
-            OnceCell::new()
-        };
+        let can_trust_worktree = OnceCell::new();
         for (directory_path, kind, file_content) in settings_contents {
-            let mut applied = true;
             match (&directory_path, kind) {
                 (LocalSettingsPath::InWorktree(directory), LocalSettingsKind::Settings) => {
                     if *can_trust_worktree.get_or_init(|| {
@@ -1011,7 +290,6 @@ impl SettingsObserver {
                             cx,
                         )
                     } else {
-                        applied = false;
                         self.pending_local_settings
                             .entry(PathTrust::Worktree(worktree_id))
                             .or_default()
@@ -1030,21 +308,6 @@ impl SettingsObserver {
                     continue;
                 }
             };
-
-            if applied {
-                if let Some(downstream_client) = &self.downstream_client {
-                    downstream_client
-                        .send(proto::UpdateWorktreeSettings {
-                            project_id: self.project_id,
-                            worktree_id: remote_worktree_id.to_proto(),
-                            path: directory_path.to_proto(),
-                            content: file_content.clone(),
-                            kind: Some(local_settings_kind_to_proto(kind).into()),
-                            outside_worktree: Some(directory_path.is_outside_worktree()),
-                        })
-                        .log_err();
-                }
-            }
         }
     }
 }
@@ -1081,18 +344,4 @@ fn apply_local_settings(
             }
         }
     })
-}
-
-pub fn local_settings_kind_from_proto(kind: proto::LocalSettingsKind) -> LocalSettingsKind {
-    match kind {
-        proto::LocalSettingsKind::Settings => LocalSettingsKind::Settings,
-        proto::LocalSettingsKind::Editorconfig => LocalSettingsKind::Editorconfig,
-    }
-}
-
-pub fn local_settings_kind_to_proto(kind: LocalSettingsKind) -> proto::LocalSettingsKind {
-    match kind {
-        LocalSettingsKind::Settings => proto::LocalSettingsKind::Settings,
-        LocalSettingsKind::Editorconfig => proto::LocalSettingsKind::Editorconfig,
-    }
 }

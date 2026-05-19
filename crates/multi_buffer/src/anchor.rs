@@ -1,6 +1,6 @@
 use crate::{
     ExcerptSummary, MultiBufferDimension, MultiBufferOffset, MultiBufferOffsetUtf16, PathKey,
-    PathKeyIndex, find_diff_state,
+    PathKeyIndex,
 };
 
 use super::{MultiBufferSnapshot, ToOffset, ToPoint};
@@ -17,7 +17,6 @@ use text::BufferId;
 pub struct ExcerptAnchor {
     pub(crate) text_anchor: text::Anchor,
     pub(crate) path: PathKeyIndex,
-    pub(crate) diff_base_anchor: Option<text::Anchor>,
 }
 
 /// A stable reference to a position within a [`MultiBuffer`](super::MultiBuffer).
@@ -97,11 +96,6 @@ impl ExcerptAnchor {
         self.text_anchor
     }
 
-    pub(crate) fn with_diff_base_anchor(mut self, diff_base_anchor: text::Anchor) -> Self {
-        self.diff_base_anchor = Some(diff_base_anchor);
-        self
-    }
-
     pub(crate) fn cmp(&self, other: &Self, snapshot: &MultiBufferSnapshot) -> Ordering {
         let Some(self_path_key) = snapshot.path_keys.get_index(self.path.0 as usize) else {
             panic!("anchor's path was never added to multibuffer")
@@ -140,26 +134,6 @@ impl ExcerptAnchor {
             return text_cmp;
         }
 
-        if (self.diff_base_anchor.is_some() || other.diff_base_anchor.is_some())
-            && let Some(base_text) = find_diff_state(&snapshot.diffs, self.text_anchor.buffer_id)
-                .map(|diff| diff.base_text())
-        {
-            let self_anchor = self.diff_base_anchor.filter(|a| a.is_valid(base_text));
-            let other_anchor = other.diff_base_anchor.filter(|a| a.is_valid(base_text));
-            return match (self_anchor, other_anchor) {
-                (Some(a), Some(b)) => a.cmp(&b, base_text),
-                (Some(_), None) => match other.text_anchor().bias {
-                    Bias::Left => Ordering::Greater,
-                    Bias::Right => Ordering::Less,
-                },
-                (None, Some(_)) => match self.text_anchor().bias {
-                    Bias::Left => Ordering::Less,
-                    Bias::Right => Ordering::Greater,
-                },
-                (None, None) => Ordering::Equal,
-            };
-        }
-
         Ordering::Equal
     }
 
@@ -171,18 +145,7 @@ impl ExcerptAnchor {
             return *self;
         };
         let text_anchor = self.text_anchor().bias_left(&buffer);
-        let ret = Self::in_buffer(self.path, text_anchor);
-        if let Some(diff_base_anchor) = self.diff_base_anchor {
-            if let Some(diff) = find_diff_state(&snapshot.diffs, self.text_anchor.buffer_id)
-                && diff_base_anchor.is_valid(&diff.base_text())
-            {
-                ret.with_diff_base_anchor(diff_base_anchor.bias_left(diff.base_text()))
-            } else {
-                ret.with_diff_base_anchor(diff_base_anchor)
-            }
-        } else {
-            ret
-        }
+        Self::in_buffer(self.path, text_anchor)
     }
 
     fn bias_right(&self, snapshot: &MultiBufferSnapshot) -> Self {
@@ -193,27 +156,12 @@ impl ExcerptAnchor {
             return *self;
         };
         let text_anchor = self.text_anchor().bias_right(&buffer);
-        let ret = Self::in_buffer(self.path, text_anchor);
-        if let Some(diff_base_anchor) = self.diff_base_anchor {
-            if let Some(diff) = find_diff_state(&snapshot.diffs, self.text_anchor.buffer_id)
-                && diff_base_anchor.is_valid(&diff.base_text())
-            {
-                ret.with_diff_base_anchor(diff_base_anchor.bias_right(diff.base_text()))
-            } else {
-                ret.with_diff_base_anchor(diff_base_anchor)
-            }
-        } else {
-            ret
-        }
+        Self::in_buffer(self.path, text_anchor)
     }
 
     #[track_caller]
     pub(crate) fn in_buffer(path: PathKeyIndex, text_anchor: text::Anchor) -> Self {
-        ExcerptAnchor {
-            path,
-            diff_base_anchor: None,
-            text_anchor,
-        }
+        ExcerptAnchor { path, text_anchor }
     }
 
     fn is_valid(&self, snapshot: &MultiBufferSnapshot) -> bool {
@@ -384,7 +332,6 @@ impl Anchor {
                 Some(ExcerptAnchor {
                     text_anchor: excerpt.range.context.start,
                     path: excerpt.path_key_index,
-                    diff_base_anchor: None,
                 })
             }
             Anchor::Excerpt(excerpt_anchor) => Some(*excerpt_anchor),
@@ -394,7 +341,6 @@ impl Anchor {
                 Some(ExcerptAnchor {
                     text_anchor: excerpt.range.context.end,
                     path: excerpt.path_key_index,
-                    diff_base_anchor: None,
                 })
             }
         }
@@ -461,23 +407,9 @@ impl Anchor {
         }
     }
 
-    pub fn diff_base_anchor(&self) -> Option<text::Anchor> {
-        self.excerpt_anchor()?.diff_base_anchor
-    }
-
     #[cfg(any(test, feature = "test-support"))]
     pub fn expect_text_anchor(&self) -> text::Anchor {
         self.excerpt_anchor().unwrap().text_anchor
-    }
-
-    pub fn with_diff_base_anchor(mut self, diff_base_anchor: text::Anchor) -> Self {
-        match &mut self {
-            Anchor::Min | Anchor::Max => {}
-            Anchor::Excerpt(excerpt_anchor) => {
-                excerpt_anchor.diff_base_anchor = Some(diff_base_anchor);
-            }
-        }
-        self
     }
 }
 

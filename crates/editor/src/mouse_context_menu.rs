@@ -1,9 +1,6 @@
 use crate::{
-    Copy, CopyAndTrim, CopyPermalinkToLine, Cut, DisplayPoint, DisplaySnapshot, Editor,
-    FindAllReferences, GoToDeclaration, GoToDefinition, GoToImplementation, GoToTypeDefinition,
-    Paste, Rename, RevealInFileManager, SelectMode, SelectionEffects, SelectionExt, ToDisplayPoint,
-    ToggleCodeActions,
-    actions::{Format, FormatSelections},
+    Copy, CopyAndTrim, Cut, DisplayPoint, DisplaySnapshot, Editor, Paste, RevealInFileManager,
+    SelectMode, SelectionEffects, SelectionExt, ToDisplayPoint,
     selections_collection::SelectionsCollection,
 };
 use gpui::prelude::FluentBuilder;
@@ -177,9 +174,9 @@ pub fn deploy_context_menu(
         }
 
         // Don't show the context menu if there isn't a project associated with this editor
-        let Some(project) = editor.project.clone() else {
+        if editor.project.is_none() {
             return;
-        };
+        }
 
         let snapshot = editor.snapshot(window, cx);
         let display_map = editor.display_snapshot(cx);
@@ -213,44 +210,9 @@ pub fn deploy_context_menu(
                         .file()
                         .is_some_and(|file| is_markdown_path(&file.full_path(cx)))
             });
-        let has_git_repo =
-            buffer
-                .anchor_to_buffer_anchor(anchor)
-                .is_some_and(|(buffer_anchor, _)| {
-                    project
-                        .read(cx)
-                        .git_store()
-                        .read(cx)
-                        .repository_and_path_for_buffer_id(buffer_anchor.buffer_id, cx)
-                        .is_some()
-                });
-
-        let format_selections = window.is_action_available(&FormatSelections, cx);
         ui::ContextMenu::build(window, cx, |menu, _window, _cx| {
             let builder = menu
                 .on_blur_subscription(Subscription::new(|| {}))
-                .action("Go to Definition", Box::new(GoToDefinition))
-                .action("Go to Declaration", Box::new(GoToDeclaration))
-                .action("Go to Type Definition", Box::new(GoToTypeDefinition))
-                .action("Go to Implementation", Box::new(GoToImplementation))
-                .action(
-                    "Find All References",
-                    Box::new(FindAllReferences::default()),
-                )
-                .separator()
-                .action("Rename Symbol", Box::new(Rename))
-                .action("Format Buffer", Box::new(Format))
-                .when(format_selections, |cx| {
-                    cx.action("Format Selections", Box::new(FormatSelections))
-                })
-                .action(
-                    "Show Code Actions",
-                    Box::new(ToggleCodeActions {
-                        deployed_from: None,
-                        quick_launch: false,
-                    }),
-                )
-                .separator()
                 .action("Cut", Box::new(Cut))
                 .action("Copy", Box::new(Copy))
                 .action("Copy and Trim", Box::new(CopyAndTrim))
@@ -275,17 +237,7 @@ pub fn deploy_context_menu(
                 )
                 .when(is_markdown, |builder| {
                     builder.action("Open Markdown Preview", Box::new(OpenMarkdownPreview))
-                })
-                .action_disabled_when(
-                    !has_git_repo,
-                    "Copy Permalink",
-                    Box::new(CopyPermalinkToLine),
-                )
-                .action_disabled_when(
-                    !has_git_repo,
-                    "View File History",
-                    Box::new(git::FileHistory),
-                );
+                });
             match focus {
                 Some(focus) => builder.context(focus),
                 None => builder,
@@ -320,59 +272,6 @@ pub fn deploy_context_menu(
     cx.notify();
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{editor_tests::init_test, test::editor_lsp_test_context::EditorLspTestContext};
-    use indoc::indoc;
-
-    #[gpui::test]
-    async fn test_mouse_context_menu(cx: &mut gpui::TestAppContext) {
-        init_test(cx, |_| {});
-
-        let mut cx = EditorLspTestContext::new_rust(
-            lsp::ServerCapabilities {
-                hover_provider: Some(lsp::HoverProviderCapability::Simple(true)),
-                ..Default::default()
-            },
-            cx,
-        )
-        .await;
-
-        cx.set_state(indoc! {"
-            fn teˇst() {
-                do_work();
-            }
-        "});
-        let point = cx.display_point(indoc! {"
-            fn test() {
-                do_wˇork();
-            }
-        "});
-        cx.editor(|editor, _window, _app| assert!(editor.mouse_context_menu.is_none()));
-
-        cx.update_editor(|editor, window, cx| {
-            deploy_context_menu(editor, Some(Default::default()), point, window, cx);
-
-            // Assert that, even after deploying the editor's mouse context
-            // menu, the editor's focus handle still contains the focused
-            // element. The pane's tab bar relies on this to determine whether
-            // to show the tab bar buttons and there was a small flicker when
-            // deploying the mouse context menu that would cause this to not be
-            // true, making it so that the buttons would disappear for a couple
-            // of frames.
-            assert!(editor.focus_handle.contains_focused(window, cx));
-        });
-
-        cx.assert_editor_state(indoc! {"
-            fn test() {
-                do_wˇork();
-            }
-        "});
-        cx.editor(|editor, _window, _app| assert!(editor.mouse_context_menu.is_some()));
-    }
-}
-
 fn is_markdown_path(path: &Path) -> bool {
     if let Some(extension) = path.extension().and_then(|extension| extension.to_str())
         && matches!(
@@ -388,7 +287,7 @@ fn is_markdown_path(path: &Path) -> bool {
         .is_some_and(|file_name| {
             matches!(
                 file_name,
-                ".rules" | ".cursorrules" | ".windsurfrules" | ".clinerules"
+                "README" | "CHANGELOG" | "CONTRIBUTING" | "LICENSE" | "NEWS" | "NOTICE"
             )
         })
 }

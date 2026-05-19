@@ -44,25 +44,16 @@ pub struct ThemeSettings {
     ui_font_size: Pixels,
     /// The font used for UI elements.
     pub ui_font: Font,
-    /// The font size used for buffers, and the terminal.
-    ///
-    /// The terminal font size can be overridden using it's own setting.
+    /// The font size used for buffers.
     buffer_font_size: Pixels,
-    /// The font used for buffers, and the terminal.
-    ///
-    /// The terminal font family can be overridden using it's own setting.
+    /// The font used for buffers.
     pub buffer_font: Font,
-    /// The font family to use for rendering in the markdown preview.
-    /// Falls back to the UI font family if unset.
     markdown_preview_font_family: Option<SharedString>,
-    /// The theme to use for the markdown preview.
-    /// Falls back to the main editor theme if unset.
     pub markdown_preview_theme: Option<ThemeSelection>,
-    /// The line height for buffers, and the terminal.
+    /// The line height for buffers.
     ///
     /// Changing this may affect the spacing of some UI elements.
     ///
-    /// The terminal font family can be overridden using it's own setting.
     pub buffer_line_height: BufferLineHeight,
     /// The current theme selection.
     pub theme: ThemeSelection,
@@ -373,8 +364,6 @@ impl ThemeSettings {
         clamp_font_size(font_size)
     }
 
-    /// Returns the font family to use in the markdown preview,
-    /// falling back to the UI font family when unset.
     pub fn markdown_preview_font_family(&self) -> &SharedString {
         self.markdown_preview_font_family
             .as_ref()
@@ -556,15 +545,15 @@ impl settings::Settings for ThemeSettings {
                 style: FontStyle::default(),
             },
             buffer_font_size: clamp_font_size(content.buffer_font_size.unwrap().into_gpui()),
-            buffer_line_height: content.buffer_line_height.unwrap().into(),
             markdown_preview_font_family: content
                 .markdown_preview_font_family
                 .as_ref()
-                .map(|f| f.0.clone().into()),
+                .map(|font_family| font_family.0.clone().into()),
             markdown_preview_theme: content
                 .markdown_preview_theme
                 .clone()
                 .map(ThemeSelection::from),
+            buffer_line_height: content.buffer_line_height.unwrap().into(),
             theme: theme_selection,
             experimental_theme_overrides: content.experimental_theme_overrides.clone(),
             theme_overrides: content.theme_overrides.clone(),

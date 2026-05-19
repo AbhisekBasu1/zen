@@ -63,14 +63,6 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                 MenuItem::os_action("Copy", editor::actions::Copy, OsAction::Copy),
                 MenuItem::action("Copy and Trim", editor::actions::CopyAndTrim),
                 MenuItem::os_action("Paste", editor::actions::Paste, OsAction::Paste),
-                MenuItem::separator(),
-                MenuItem::action("Find", search::buffer_search::Deploy::find()),
-                MenuItem::action("Find in Project", workspace::DeploySearch::default()),
-                MenuItem::separator(),
-                MenuItem::action(
-                    "Toggle Line Comment",
-                    editor::actions::ToggleComments::default(),
-                ),
             ],
         },
         Menu {
@@ -81,13 +73,6 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                     "Select All",
                     editor::actions::SelectAll,
                     OsAction::SelectAll,
-                ),
-                MenuItem::action("Expand Selection", editor::actions::SelectLargerSyntaxNode),
-                MenuItem::action("Shrink Selection", editor::actions::SelectSmallerSyntaxNode),
-                MenuItem::action("Select Next Sibling", editor::actions::SelectNextSyntaxNode),
-                MenuItem::action(
-                    "Select Previous Sibling",
-                    editor::actions::SelectPreviousSyntaxNode,
                 ),
                 MenuItem::separator(),
                 MenuItem::action(
@@ -102,23 +87,6 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                         skip_soft_wrap: true,
                     },
                 ),
-                MenuItem::action(
-                    "Select Next Occurrence",
-                    editor::actions::SelectNext {
-                        replace_newest: false,
-                    },
-                ),
-                MenuItem::action(
-                    "Select Previous Occurrence",
-                    editor::actions::SelectPrevious {
-                        replace_newest: false,
-                    },
-                ),
-                MenuItem::action("Select All Occurrences", editor::actions::SelectAllMatches),
-                MenuItem::separator(),
-                MenuItem::action("Move Line Up", editor::actions::MoveLineUp),
-                MenuItem::action("Move Line Down", editor::actions::MoveLineDown),
-                MenuItem::action("Duplicate Selection", editor::actions::DuplicateLineDown),
             ],
         },
         Menu {
@@ -146,6 +114,9 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                     "Open Markdown Preview to the Side",
                     zen_actions::preview::markdown::OpenPreviewToTheSide,
                 ),
+                MenuItem::separator(),
+                MenuItem::action("Select Theme...", zen_actions::theme::Select),
+                MenuItem::action("Toggle Light/Dark Theme", zen_actions::theme::ToggleMode),
                 MenuItem::separator(),
                 MenuItem::action("Toggle Left Dock", workspace::ToggleLeftDock),
                 MenuItem::action("Toggle Bottom Dock", workspace::ToggleBottomDock),

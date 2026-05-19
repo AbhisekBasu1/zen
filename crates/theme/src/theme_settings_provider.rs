@@ -10,7 +10,7 @@ pub trait ThemeSettingsProvider: Send + Sync + 'static {
     /// Returns the font used for UI elements.
     fn ui_font<'a>(&'a self, cx: &'a App) -> &'a Font;
 
-    /// Returns the font used for buffers and the terminal.
+    /// Returns the font used for buffers.
     fn buffer_font<'a>(&'a self, cx: &'a App) -> &'a Font;
 
     /// Returns the UI font size in pixels.

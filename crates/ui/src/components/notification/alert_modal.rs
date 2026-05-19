@@ -1,6 +1,4 @@
-use crate::component_prelude::*;
 use crate::prelude::*;
-use crate::{Checkbox, ListBulletItem, ToggleState};
 use gpui::Action;
 use gpui::FocusHandle;
 use gpui::IntoElement;
@@ -10,7 +8,7 @@ use theme::ActiveTheme;
 
 type ActionHandler = Box<dyn FnOnce(Stateful<Div>) -> Stateful<Div>>;
 
-#[derive(IntoElement, RegisterComponent)]
+#[derive(IntoElement)]
 pub struct AlertModal {
     id: ElementId,
     header: Option<AnyElement>,
@@ -162,91 +160,5 @@ impl RenderOnce for AlertModal {
 impl ParentElement for AlertModal {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
         self.children.extend(elements)
-    }
-}
-
-impl Component for AlertModal {
-    fn scope() -> ComponentScope {
-        ComponentScope::Notification
-    }
-
-    fn status() -> ComponentStatus {
-        ComponentStatus::WorkInProgress
-    }
-
-    fn description() -> Option<&'static str> {
-        Some("A modal dialog that presents an alert message with primary and dismiss actions.")
-    }
-
-    fn preview(_window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        Some(
-            v_flex()
-                .gap_6()
-                .p_4()
-                .children(vec![
-                    example_group(vec![single_example(
-                        "Basic Alert",
-                        AlertModal::new("simple-modal")
-                            .title("Do you want to leave the current call?")
-                            .child(
-                                "The current window will be closed, and connections to any shared projects will be terminated."
-                            )
-                            .primary_action("Leave Call")
-                            .dismiss_label("Cancel")
-                            .into_any_element(),
-                    )]),
-                    example_group(vec![single_example(
-                        "Custom Header",
-                        AlertModal::new("custom-header-modal")
-                            .header(
-                                v_flex()
-                                    .p_3()
-                                    .bg(cx.theme().colors().background)
-                                    .gap_1()
-                                    .child(
-                                        h_flex()
-                                            .gap_1()
-                                            .child(Icon::new(IconName::Warning).color(Color::Warning))
-                                            .child(Headline::new("Unrecognized Workspace").size(HeadlineSize::Small))
-                                    )
-                                    .child(
-                                        h_flex()
-                                            .pl(IconSize::default().rems() + rems(0.5))
-                                            .child(Label::new("~/projects/my-project").color(Color::Muted))
-                                    )
-                            )
-                            .child(
-                                "Untrusted workspaces are opened in Restricted Mode to protect your system.
-Review .zed/settings.json for any extensions or commands configured by this project.",
-                            )
-                            .child(
-                                v_flex()
-                                    .mt_1()
-                                    .child(Label::new("Restricted mode prevents:").color(Color::Muted))
-                                    .child(ListBulletItem::new("Project settings from being applied"))
-                                    .child(ListBulletItem::new("Language servers from running"))
-                                    .child(ListBulletItem::new("MCP integrations from installing"))
-                            )
-                            .footer(
-                                h_flex()
-                                    .p_3()
-                                    .justify_between()
-                                    .child(
-                                        Checkbox::new("trust-parent", ToggleState::Unselected)
-                                            .label("Trust all projects in parent directory")
-                                    )
-                                    .child(
-                                        h_flex()
-                                            .gap_1()
-                                            .child(Button::new("restricted", "Stay in Restricted Mode").color(Color::Muted))
-                                            .child(Button::new("trust", "Trust and Continue").style(ButtonStyle::Filled))
-                                    )
-                            )
-                            .width(rems(40.))
-                            .into_any_element(),
-                    )]),
-                ])
-                .into_any_element(),
-        )
     }
 }

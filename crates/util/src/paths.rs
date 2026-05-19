@@ -2714,7 +2714,7 @@ mod tests {
     // }
 
     // #[perf]
-    // fn project_search() {
+    // fn path_matcher_exclude_dir() {
     //     let path = Path::new("/Users/example/work/zen/site/node_modules");
     //     let path_matcher =
     //         PathMatcher::new(&["**/node_modules/**".to_owned()], PathStyle::Posix).unwrap();

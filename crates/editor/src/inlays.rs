@@ -4,10 +4,7 @@
 //! They are attached to a certain [`Anchor`], and display certain contents (usually, strings)
 //! between real text around that anchor.
 //!
-//! Inlay examples in Zed:
-//! * inlay hints, received from LSP
-//! * inline predictions, showing the Zeta/Copilot/etc. predictions
-//! * ... anything else, potentially.
+//! Inlays are used for virtual text such as inline predictions.
 //!
 //! Editor uses [`crate::DisplayMap`] and [`crate::display_map::InlayMap`] to manage what's rendered inside the editor.
 

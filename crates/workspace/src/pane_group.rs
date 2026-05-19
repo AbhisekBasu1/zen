@@ -1,18 +1,14 @@
 use crate::{
-    AnyActiveCall, AppState, CollaboratorId, FollowerState, Pane, ParticipantLocation, Workspace,
-    WorkspaceSettings,
-    notifications::DetachAndPromptErr,
+    Pane, Workspace, WorkspaceSettings,
     pane_group::element::pane_axis,
     workspace_settings::{PaneSplitDirectionHorizontal, PaneSplitDirectionVertical},
 };
 use anyhow::Result;
-use collections::HashMap;
 use gpui::{
-    Along, AnyView, AnyWeakView, Axis, Bounds, Entity, Hsla, IntoElement, MouseButton, Pixels,
-    Point, StyleRefinement, WeakEntity, Window, point, size,
+    Along, AnyView, AnyWeakView, Axis, Bounds, Entity, Hsla, IntoElement, Pixels, Point,
+    StyleRefinement, WeakEntity, Window, point, size,
 };
 use parking_lot::Mutex;
-use project::Project;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use settings::Settings;
@@ -109,8 +105,7 @@ impl PaneGroup {
         }
     }
 
-    /// Moves active pane to span the entire border in the given direction,
-    /// similar to Vim ctrl+w shift-[hjkl] motion.
+    /// Moves active pane to span the entire border in the given direction.
     ///
     /// Returns:
     /// - Ok(true) if it found and moved a pane
@@ -317,11 +312,7 @@ impl Member {
 
 #[derive(Clone, Copy)]
 pub struct PaneRenderContext<'a> {
-    pub project: &'a Entity<Project>,
-    pub follower_states: &'a HashMap<CollaboratorId, FollowerState>,
-    pub active_call: Option<&'a dyn AnyActiveCall>,
     pub active_pane: &'a Entity<Pane>,
-    pub app_state: &'a Arc<AppState>,
     pub workspace: &'a WeakEntity<Workspace>,
 }
 
@@ -365,113 +356,8 @@ impl PaneLeaderDecorator for ActivePaneDecorator<'_> {
 }
 
 impl PaneLeaderDecorator for PaneRenderContext<'_> {
-    fn decorate(&self, pane: &Entity<Pane>, cx: &App) -> LeaderDecoration {
-        let follower_state = self.follower_states.iter().find_map(|(leader_id, state)| {
-            if state.center_pane == *pane {
-                Some((*leader_id, state))
-            } else {
-                None
-            }
-        });
-        let Some((leader_id, follower_state)) = follower_state else {
-            return LeaderDecoration::default();
-        };
-
-        let CollaboratorId::PeerId(peer_id) = leader_id;
-        let Some(leader) = self
-            .active_call
-            .as_ref()
-            .and_then(|call| call.remote_participant_for_peer_id(peer_id, cx))
-        else {
-            return LeaderDecoration::default();
-        };
-
-        let is_in_unshared_view = follower_state.active_view_id.is_some_and(|view_id| {
-            !follower_state
-                .items_by_leader_view_id
-                .contains_key(&view_id)
-        });
-
-        let mut leader_join_data = None;
-        let leader_status_box = match leader.location {
-            ParticipantLocation::SharedProject {
-                project_id: leader_project_id,
-            } => {
-                if Some(leader_project_id) == self.project.read(cx).remote_id() {
-                    is_in_unshared_view.then(|| {
-                        Label::new(format!(
-                            "{} is in an unshared pane",
-                            leader.user.github_login
-                        ))
-                    })
-                } else {
-                    leader_join_data = Some((leader_project_id, leader.user.id));
-                    Some(Label::new(format!(
-                        "Follow {} to their active project",
-                        leader.user.github_login,
-                    )))
-                }
-            }
-            ParticipantLocation::UnsharedProject => Some(Label::new(format!(
-                "{} is viewing an unshared Zen project",
-                leader.user.github_login
-            ))),
-            ParticipantLocation::External => Some(Label::new(format!(
-                "{} is viewing a window outside of Zen",
-                leader.user.github_login
-            ))),
-        };
-        let status_box = leader_status_box.map(|status| {
-            div()
-                .absolute()
-                .w_96()
-                .bottom_3()
-                .right_3()
-                .elevation_2(cx)
-                .p_1()
-                .child(status)
-                .when_some(
-                    leader_join_data,
-                    |this, (leader_project_id, leader_user_id)| {
-                        let app_state = self.app_state.clone();
-                        this.cursor_pointer().on_mouse_down(
-                            MouseButton::Left,
-                            move |_, window, cx| {
-                                crate::join_in_room_project(
-                                    leader_project_id,
-                                    leader_user_id,
-                                    app_state.clone(),
-                                    cx,
-                                )
-                                .detach_and_prompt_err(
-                                    "Failed to join project",
-                                    window,
-                                    cx,
-                                    |error, _, _| Some(format!("{error:#}")),
-                                );
-                            },
-                        )
-                    },
-                )
-                .into_any_element()
-        });
-        let mut leader_color = cx
-            .theme()
-            .players()
-            .color_for_participant(leader.participant_index.0)
-            .cursor;
-
-        let is_in_panel = follower_state.dock_pane.is_some();
-        if is_in_panel {
-            leader_color.fade_out(0.75);
-        } else {
-            leader_color.fade_out(0.3);
-        }
-
-        LeaderDecoration {
-            status_box,
-            border: Some(leader_color),
-        }
+    fn decorate(&self, _: &Entity<Pane>, _: &App) -> LeaderDecoration {
+        LeaderDecoration::default()
     }
 
     fn active_pane(&self) -> &Entity<Pane> {
@@ -953,7 +839,6 @@ impl PaneAxis {
             basis,
             self.flexes.clone(),
             self.bounding_boxes.clone(),
-            render_cx.workspace().clone(),
         )
         .with_is_leaf_pane_mask(is_leaf_pane)
         .children(rendered_children)
@@ -1064,21 +949,17 @@ mod element {
     use std::mem;
     use std::{cell::RefCell, iter, rc::Rc, sync::Arc};
 
+    use crate::WorkspaceSettings;
     use gpui::{
         Along, AnyElement, App, Axis, BorderStyle, Bounds, Element, GlobalElementId,
         HitboxBehavior, IntoElement, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
-        Pixels, Point, Size, Style, WeakEntity, Window, px, relative, size,
+        Pixels, Point, Size, Style, Window, px, relative, size,
     };
     use gpui::{CursorStyle, Hitbox};
     use parking_lot::Mutex;
     use settings::Settings;
     use smallvec::SmallVec;
     use ui::prelude::*;
-    use util::ResultExt;
-
-    use crate::Workspace;
-
-    use crate::WorkspaceSettings;
 
     use super::{HANDLE_HITBOX_SIZE, HORIZONTAL_MIN_SIZE, VERTICAL_MIN_SIZE};
 
@@ -1089,7 +970,6 @@ mod element {
         basis: usize,
         flexes: Arc<Mutex<Vec<f32>>>,
         bounding_boxes: Arc<Mutex<Vec<Option<Bounds<Pixels>>>>>,
-        workspace: WeakEntity<Workspace>,
     ) -> PaneAxisElement {
         PaneAxisElement {
             axis,
@@ -1098,7 +978,6 @@ mod element {
             bounding_boxes,
             children: SmallVec::new(),
             active_pane_ix: None,
-            workspace,
             is_leaf_pane_mask: Vec::new(),
         }
     }
@@ -1112,7 +991,6 @@ mod element {
         bounding_boxes: Arc<Mutex<Vec<Option<Bounds<Pixels>>>>>,
         children: SmallVec<[AnyElement; 2]>,
         active_pane_ix: Option<usize>,
-        workspace: WeakEntity<Workspace>,
         // Track which children are leaf panes (Member::Pane) vs axes (Member::Axis)
         is_leaf_pane_mask: Vec<bool>,
     }
@@ -1152,7 +1030,6 @@ mod element {
             axis: Axis,
             child_start: Point<Pixels>,
             container_size: Size<Pixels>,
-            workspace: WeakEntity<Workspace>,
             window: &mut Window,
             cx: &mut App,
         ) {
@@ -1236,9 +1113,6 @@ mod element {
                 proposed_current_pixel_change -= current_pixel_change;
             }
 
-            workspace
-                .update(cx, |this, cx| this.serialize_workspace(window, cx))
-                .log_err();
             cx.stop_propagation();
             window.refresh();
         }
@@ -1475,7 +1349,6 @@ mod element {
                     window.on_mouse_event({
                         let dragged_handle = layout.dragged_handle.clone();
                         let flexes = self.flexes.clone();
-                        let workspace = self.workspace.clone();
                         let handle_hitbox = handle.hitbox.clone();
                         move |e: &MouseDownEvent, phase, window, cx| {
                             if phase.bubble() && handle_hitbox.is_hovered(window) {
@@ -1483,9 +1356,6 @@ mod element {
                                 if e.click_count >= 2 {
                                     let mut borrow = flexes.lock();
                                     *borrow = vec![1.; borrow.len()];
-                                    workspace
-                                        .update(cx, |this, cx| this.serialize_workspace(window, cx))
-                                        .log_err();
 
                                     window.refresh();
                                 }
@@ -1494,7 +1364,6 @@ mod element {
                         }
                     });
                     window.on_mouse_event({
-                        let workspace = self.workspace.clone();
                         let dragged_handle = layout.dragged_handle.clone();
                         let flexes = self.flexes.clone();
                         let child_bounds = child.bounds;
@@ -1509,7 +1378,6 @@ mod element {
                                     axis,
                                     child_bounds.origin,
                                     bounds.size,
-                                    workspace.clone(),
                                     window,
                                     cx,
                                 )

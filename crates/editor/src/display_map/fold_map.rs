@@ -33,7 +33,7 @@ pub struct FoldPlaceholder {
     pub merge_adjacent: bool,
     /// Category of the fold. Useful for carefully removing from overlapping folds.
     pub type_tag: Option<TypeId>,
-    /// Text provided by the language server to display in place of the folded range.
+    /// Text to display in place of the folded range.
     /// When set, this is used instead of the default "⋯" ellipsis.
     pub collapsed_text: Option<SharedString>,
 }
@@ -707,10 +707,7 @@ impl FoldSnapshot {
     pub fn text(&self) -> String {
         self.chunks(
             FoldOffset(MultiBufferOffset(0))..self.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling { tree_sitter: false },
             Highlights::default(),
         )
         .map(|c| c.text)
@@ -957,10 +954,7 @@ impl FoldSnapshot {
     pub fn chars_at(&self, start: FoldPoint) -> impl '_ + Iterator<Item = char> {
         self.chunks(
             start.to_offset(self)..self.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling { tree_sitter: false },
             Highlights::default(),
         )
         .flat_map(|chunk| chunk.text.chars())
@@ -970,10 +964,7 @@ impl FoldSnapshot {
     pub fn chunks_at(&self, start: FoldPoint) -> FoldChunks<'_> {
         self.chunks(
             start.to_offset(self)..self.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling { tree_sitter: false },
             Highlights::default(),
         )
     }
@@ -1385,8 +1376,7 @@ impl Iterator for FoldRows<'_> {
     }
 }
 
-/// A chunk of a buffer's text, along with its syntax highlight and
-/// diagnostic status.
+/// A chunk of a buffer's text, along with its syntax highlight state.
 #[derive(Clone, Debug, Default)]
 pub struct Chunk<'a> {
     /// The text of the chunk.
@@ -1396,12 +1386,6 @@ pub struct Chunk<'a> {
     /// The highlight style that has been applied to this chunk in
     /// the editor.
     pub highlight_style: Option<HighlightStyle>,
-    /// The severity of diagnostic associated with this chunk, if any.
-    pub diagnostic_severity: Option<lsp::DiagnosticSeverity>,
-    /// Whether this chunk of text is marked as unnecessary.
-    pub is_unnecessary: bool,
-    /// Whether this chunk of text should be underlined.
-    pub underline: bool,
     /// Whether this chunk of text was originally a tab character.
     pub is_tab: bool,
     /// Whether this chunk of text was originally a tab character.
@@ -1595,11 +1579,8 @@ impl<'a> Iterator for FoldChunks<'a> {
                 newlines: chunk.newlines,
                 syntax_highlight_id: chunk.syntax_highlight_id,
                 highlight_style: chunk.highlight_style,
-                diagnostic_severity: chunk.diagnostic_severity,
-                is_unnecessary: chunk.is_unnecessary,
                 is_tab: chunk.is_tab,
                 is_inlay: chunk.is_inlay,
-                underline: chunk.underline,
                 renderer: inlay_chunk.renderer,
             });
         }
@@ -2142,10 +2123,7 @@ mod tests {
                     snapshot
                         .chunks(
                             start..end,
-                            LanguageAwareStyling {
-                                tree_sitter: false,
-                                diagnostics: false,
-                            },
+                            LanguageAwareStyling { tree_sitter: false },
                             Highlights::default()
                         )
                         .map(|c| c.text)
@@ -2319,10 +2297,7 @@ mod tests {
         // Get all chunks and verify their bitmaps
         let chunks = snapshot.chunks(
             FoldOffset(MultiBufferOffset(0))..FoldOffset(snapshot.len().0),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling { tree_sitter: false },
             Highlights::default(),
         );
 

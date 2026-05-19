@@ -42,10 +42,9 @@ use util::{
     rel_path::RelPath,
 };
 use workspace::{
-    ModalView, OpenOptions, OpenVisible, SplitDirection, Workspace, item::PreviewTabsSettings,
-    notifications::NotifyResultExt, pane,
+    ModalView, OpenOptions, OpenVisible, SplitDirection, Workspace, notifications::NotifyResultExt,
+    pane,
 };
-use zen_actions::search::ToggleIncludeIgnored;
 
 actions!(
     file_finder,
@@ -54,6 +53,8 @@ actions!(
         SelectPrevious,
         /// Toggles the file filter menu.
         ToggleFilterMenu,
+        /// Toggles visibility of ignored files in the file finder.
+        ToggleIncludeIgnored,
         /// Toggles the split direction menu.
         ToggleSplitMenu
     ]
@@ -140,18 +141,14 @@ impl FileFinder {
                     return Some(Task::ready(Some(FoundPath::new(project_path, abs_path?))));
                 }
                 let abs_path = abs_path?;
-                if project.is_local() {
-                    let fs = fs.clone();
-                    Some(cx.background_spawn(async move {
-                        if fs.is_file(&abs_path).await {
-                            Some(FoundPath::new(project_path, abs_path))
-                        } else {
-                            None
-                        }
-                    }))
-                } else {
-                    Some(Task::ready(Some(FoundPath::new(project_path, abs_path))))
-                }
+                let fs = fs.clone();
+                Some(cx.background_spawn(async move {
+                    if fs.is_file(&abs_path).await {
+                        Some(FoundPath::new(project_path, abs_path))
+                    } else {
+                        None
+                    }
+                }))
             })
             .collect::<Vec<_>>();
         cx.spawn_in(window, async move |workspace, cx| {
@@ -1375,13 +1372,7 @@ impl PickerDelegate for FileFinderDelegate {
                 self.matches.push_new_matches(
                     project.worktree_store(),
                     cx,
-                    self.history_items.iter().filter(|history_item| {
-                        project
-                            .worktree_for_id(history_item.project.worktree_id, cx)
-                            .is_some()
-                            || project.is_local()
-                            || project.is_via_remote_server()
-                    }),
+                    self.history_items.iter(),
                     self.currently_opened_path.as_ref(),
                     None,
                     None.into_iter(),
@@ -1454,22 +1445,14 @@ impl PickerDelegate for FileFinderDelegate {
                      project_path,
                      window: &mut Window,
                      cx: &mut Context<Workspace>| {
-                        let allow_preview =
-                            PreviewTabsSettings::get_global(cx).enable_preview_from_file_finder;
                         if secondary {
-                            workspace.split_path_preview(
-                                project_path,
-                                allow_preview,
-                                None,
-                                window,
-                                cx,
-                            )
+                            workspace.split_path_preview(project_path, false, None, window, cx)
                         } else {
                             workspace.open_path_preview(
                                 project_path,
                                 None,
                                 true,
-                                allow_preview,
+                                false,
                                 true,
                                 window,
                                 cx,

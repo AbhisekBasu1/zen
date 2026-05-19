@@ -5,7 +5,6 @@ mod editorconfig_store;
 mod keymap_file;
 mod settings_file;
 mod settings_store;
-mod vscode_import;
 
 pub use settings_macros::RegisterSetting;
 
@@ -44,12 +43,10 @@ pub use keymap_file::{
 pub use settings_file::*;
 pub use settings_json::*;
 pub use settings_store::{
-    DefaultSemanticTokenRules, InvalidSettingsError, LSP_SETTINGS_SCHEMA_URL_PREFIX,
-    LocalSettingsKind, LocalSettingsPath, MigrationStatus, Settings, SettingsFile,
-    SettingsJsonSchemaParams, SettingsKey, SettingsLocation, SettingsParseResult, SettingsStore,
+    InvalidSettingsError, LocalSettingsKind, LocalSettingsPath, MigrationStatus, Settings,
+    SettingsFile, SettingsJsonSchemaParams, SettingsKey, SettingsLocation, SettingsParseResult,
+    SettingsStore,
 };
-
-pub use vscode_import::{VsCodeSettings, VsCodeSettingsSource};
 
 pub use keymap_file::ActionSequence;
 
@@ -60,7 +57,6 @@ impl Global for ActiveSettingsProfileName {}
 
 pub trait UserSettingsContentExt {
     fn for_profile(&self, cx: &App) -> Option<&SettingsProfile>;
-    fn for_release_channel(&self) -> Option<&SettingsContent>;
     fn for_os(&self) -> Option<&SettingsContent>;
 }
 
@@ -70,10 +66,6 @@ impl UserSettingsContentExt for UserSettingsContent {
             return None;
         };
         self.profiles.get(&active_profile.0)
-    }
-
-    fn for_release_channel(&self) -> Option<&SettingsContent> {
-        self.release_channel_overrides.get_by_key("dev")
     }
 
     fn for_os(&self) -> Option<&SettingsContent> {
@@ -129,10 +121,6 @@ pub fn init(cx: &mut App) {
 
 pub fn default_settings() -> Cow<'static, str> {
     asset_str::<SettingsAssets>("settings/default.json")
-}
-
-pub fn default_semantic_token_rules() -> Cow<'static, str> {
-    asset_str::<SettingsAssets>("settings/default_semantic_token_rules.json")
 }
 
 pub const DEFAULT_KEYMAP_PATH: &str = "keymaps/default-macos.json";

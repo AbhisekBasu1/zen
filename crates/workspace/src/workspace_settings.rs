@@ -5,8 +5,7 @@ use collections::HashMap;
 use serde::Deserialize;
 pub use settings::{
     ActionName, AutosaveSetting, BottomDockLayout, EncodingDisplayOptions, InactiveOpacity,
-    PaneSplitDirectionHorizontal, PaneSplitDirectionVertical, RegisterSetting,
-    RestoreOnStartupBehavior, Settings,
+    PaneSplitDirectionHorizontal, PaneSplitDirectionVertical, RegisterSetting, Settings,
 };
 
 #[derive(RegisterSetting)]
@@ -18,9 +17,6 @@ pub struct WorkspaceSettings {
     pub centered_layout: settings::CenteredLayoutSettings,
     pub confirm_quit: bool,
     pub autosave: AutosaveSetting,
-    pub restore_on_startup: settings::RestoreOnStartupBehavior,
-    pub cli_default_open_behavior: settings::CliDefaultOpenBehavior,
-    pub restore_on_file_reopen: bool,
     pub drop_target_size: f32,
     pub use_system_path_prompts: bool,
     pub use_system_prompts: bool,
@@ -97,9 +93,6 @@ impl Settings for WorkspaceSettings {
             centered_layout: workspace.centered_layout.unwrap(),
             confirm_quit: workspace.confirm_quit.unwrap(),
             autosave: workspace.autosave.unwrap(),
-            restore_on_startup: workspace.restore_on_startup.unwrap(),
-            cli_default_open_behavior: workspace.cli_default_open_behavior.unwrap(),
-            restore_on_file_reopen: workspace.restore_on_file_reopen.unwrap(),
             drop_target_size: workspace.drop_target_size.unwrap(),
             use_system_path_prompts: workspace.use_system_path_prompts.unwrap(),
             use_system_prompts: workspace.use_system_prompts.unwrap(),

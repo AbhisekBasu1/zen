@@ -2,7 +2,6 @@ use crate::{
     DisplayPoint, DisplayRow, Editor, EditorMode, EditorSettings, LineWithInvisibles, RowExt,
     SelectionEffects,
     display_map::{DisplaySnapshot, ToDisplayPoint},
-    editor_settings::GoToDefinitionScrollStrategy,
     scroll::{ScrollOffset, WasScrolled},
 };
 use gpui::{App, Bounds, Context, Pixels, Window};
@@ -32,19 +31,6 @@ impl Autoscroll {
     /// scrolls so the newest cursor is vertically centered
     pub fn center() -> Self {
         Self::Strategy(AutoscrollStrategy::Center, None)
-    }
-
-    /// Returns the autoscroll strategy configured for navigation to definitions
-    /// and references, based on `go_to_definition_scroll_strategy`.
-    pub fn for_go_to_definition(offset: Option<ScrollOffset>, cx: &App) -> Self {
-        match EditorSettings::get_global(cx).go_to_definition_scroll_strategy {
-            GoToDefinitionScrollStrategy::Center => Self::center(),
-            GoToDefinitionScrollStrategy::Minimum => Self::fit(),
-            GoToDefinitionScrollStrategy::Top => Self::focused(),
-            GoToDefinitionScrollStrategy::Preserve => {
-                offset.map(Self::top_relative).unwrap_or_else(Self::center)
-            }
-        }
     }
 
     /// scrolls so the newest cursor is near the top
@@ -129,7 +115,7 @@ impl Editor {
         bounds: Bounds<Pixels>,
         line_height: Pixels,
         max_scroll_top: ScrollOffset,
-        autoscroll_request: Option<(Autoscroll, bool)>,
+        autoscroll_request: Option<Autoscroll>,
         window: &mut Window,
         cx: &mut Context<Editor>,
     ) -> (NeedsHorizontalAutoscroll, WasScrolled) {
@@ -157,7 +143,7 @@ impl Editor {
             WasScrolled(false)
         };
 
-        let Some((autoscroll, local)) = autoscroll_request else {
+        let Some(autoscroll) = autoscroll_request else {
             return (NeedsHorizontalAutoscroll(false), editor_was_scrolled);
         };
 
@@ -253,35 +239,35 @@ impl Editor {
                 }
 
                 if needs_scroll_up ^ needs_scroll_down {
-                    self.set_scroll_position_internal(scroll_position, local, true, window, cx)
+                    self.set_scroll_position_internal(scroll_position, true, window, cx)
                 } else {
                     WasScrolled(false)
                 }
             }
             AutoscrollStrategy::Center => {
                 scroll_position.y = (target_top - margin).max(0.0);
-                self.set_scroll_position_internal(scroll_position, local, true, window, cx)
+                self.set_scroll_position_internal(scroll_position, true, window, cx)
             }
             AutoscrollStrategy::Focused => {
                 let margin = margin.min(self.scroll_manager.vertical_scroll_margin);
                 scroll_position.y = (target_top - margin).max(0.0);
-                self.set_scroll_position_internal(scroll_position, local, true, window, cx)
+                self.set_scroll_position_internal(scroll_position, true, window, cx)
             }
             AutoscrollStrategy::Top => {
                 scroll_position.y = (target_top).max(0.0);
-                self.set_scroll_position_internal(scroll_position, local, true, window, cx)
+                self.set_scroll_position_internal(scroll_position, true, window, cx)
             }
             AutoscrollStrategy::Bottom => {
                 scroll_position.y = (target_bottom - visible_lines).max(0.0);
-                self.set_scroll_position_internal(scroll_position, local, true, window, cx)
+                self.set_scroll_position_internal(scroll_position, true, window, cx)
             }
             AutoscrollStrategy::TopRelative(lines) => {
                 scroll_position.y = target_top - lines as ScrollOffset;
-                self.set_scroll_position_internal(scroll_position, local, true, window, cx)
+                self.set_scroll_position_internal(scroll_position, true, window, cx)
             }
             AutoscrollStrategy::BottomRelative(lines) => {
                 scroll_position.y = target_bottom + lines as ScrollOffset;
-                self.set_scroll_position_internal(scroll_position, local, true, window, cx)
+                self.set_scroll_position_internal(scroll_position, true, window, cx)
             }
         };
 
@@ -351,11 +337,11 @@ impl Editor {
         scroll_width: Pixels,
         em_advance: Pixels,
         layouts: &[LineWithInvisibles],
-        autoscroll_request: Option<(Autoscroll, bool)>,
+        autoscroll_request: Option<Autoscroll>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<gpui::Point<ScrollOffset>> {
-        let (_, local) = autoscroll_request?;
+        autoscroll_request?;
         let em_advance = ScrollOffset::from(em_advance);
         let viewport_width = ScrollOffset::from(viewport_width);
         let scroll_width = ScrollOffset::from(scroll_width);
@@ -409,10 +395,10 @@ impl Editor {
 
         let was_scrolled = if target_left < scroll_left {
             scroll_position.x = target_left / em_advance;
-            self.set_scroll_position_internal(scroll_position, local, true, window, cx)
+            self.set_scroll_position_internal(scroll_position, true, window, cx)
         } else if target_right > scroll_right {
             scroll_position.x = (target_right - viewport_width) / em_advance;
-            self.set_scroll_position_internal(scroll_position, local, true, window, cx)
+            self.set_scroll_position_internal(scroll_position, true, window, cx)
         } else {
             WasScrolled(false)
         };
@@ -425,16 +411,7 @@ impl Editor {
     }
 
     pub fn request_autoscroll(&mut self, autoscroll: Autoscroll, cx: &mut Context<Self>) {
-        self.scroll_manager.autoscroll_request = Some((autoscroll, true));
-        cx.notify();
-    }
-
-    pub(crate) fn request_autoscroll_remotely(
-        &mut self,
-        autoscroll: Autoscroll,
-        cx: &mut Context<Self>,
-    ) {
-        self.scroll_manager.autoscroll_request = Some((autoscroll, false));
+        self.scroll_manager.autoscroll_request = Some(autoscroll);
         cx.notify();
     }
 }

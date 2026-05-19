@@ -32,7 +32,7 @@ use ui::{ElementId, IntoElement};
 const NEWLINES: &[u8; rope::Chunk::MASK_BITS] = &[b'\n'; _];
 const BULLETS: &[u8; rope::Chunk::MASK_BITS] = &[b'*'; _];
 
-/// Tracks custom blocks such as diagnostics that should be displayed within buffer.
+/// Tracks custom blocks that should be displayed within buffer.
 ///
 /// See the [`display_map` module documentation](crate::display_map) for more information.
 pub struct BlockMap {
@@ -67,7 +67,6 @@ struct BlockMapWriterCompanion<'a> {
 }
 
 struct BlockMapInverseWriter<'a> {
-    companion_multibuffer: &'a MultiBuffer,
     companion_writer: Box<BlockMapWriter<'a>>,
 }
 
@@ -581,7 +580,6 @@ pub struct CompanionViewMut<'a> {
     companion_display_map_id: EntityId,
     companion_wrap_snapshot: &'a WrapSnapshot,
     companion_wrap_edits: &'a WrapPatch,
-    companion_multibuffer: &'a MultiBuffer,
     companion_block_map: &'a mut BlockMap,
     companion: &'a Companion,
 }
@@ -592,7 +590,6 @@ impl<'a> CompanionViewMut<'a> {
         companion_display_map_id: EntityId,
         companion_wrap_snapshot: &'a WrapSnapshot,
         companion_wrap_edits: &'a WrapPatch,
-        companion_multibuffer: &'a MultiBuffer,
         companion: &'a Companion,
         companion_block_map: &'a mut BlockMap,
     ) -> Self {
@@ -601,7 +598,6 @@ impl<'a> CompanionViewMut<'a> {
             companion_display_map_id,
             companion_wrap_snapshot,
             companion_wrap_edits,
-            companion_multibuffer,
             companion,
             companion_block_map,
         }
@@ -696,7 +692,6 @@ impl BlockMap {
                 companion_wrap_snapshot: companion_view.companion_wrap_snapshot.clone(),
                 companion: companion_view.companion,
                 inverse: Some(BlockMapInverseWriter {
-                    companion_multibuffer: companion_view.companion_multibuffer,
                     companion_writer: Box::new(BlockMapWriter {
                         block_map: companion_view.companion_block_map,
                         companion: Some(BlockMapWriterCompanion {
@@ -741,25 +736,6 @@ impl BlockMap {
         self.custom_blocks.insert(block_ix, new_block.clone());
         self.custom_blocks_by_id.insert(id, new_block);
         id
-    }
-
-    // Warning: doesn't sync the block map, use advisedly
-    pub(crate) fn retain_blocks_raw(&mut self, pred: &mut dyn FnMut(&Arc<CustomBlock>) -> bool) {
-        let mut ids_to_remove = HashSet::default();
-        self.custom_blocks.retain(|block| {
-            let keep = pred(block);
-            if !keep {
-                ids_to_remove.insert(block.id);
-            }
-            keep
-        });
-        self.custom_blocks_by_id
-            .retain(|id, _| !ids_to_remove.contains(id));
-    }
-
-    // Warning: doesn't sync the block map, use advisedly
-    pub(crate) fn blocks_raw(&self) -> impl Iterator<Item = &Arc<CustomBlock>> {
-        self.custom_blocks.iter()
     }
 
     #[ztracing::instrument(skip_all, fields(edits = ?edits))]
@@ -2044,7 +2020,6 @@ impl BlockMapWriter<'_> {
     ) {
         let multi_buffer_snapshot = multi_buffer.snapshot(cx);
         let mut ranges = Vec::new();
-        let mut companion_buffer_ids = HashSet::default();
         for buffer_id in buffer_ids {
             if fold {
                 self.block_map.folded_buffers.insert(buffer_id);
@@ -2052,19 +2027,6 @@ impl BlockMapWriter<'_> {
                 self.block_map.folded_buffers.remove(&buffer_id);
             }
             ranges.extend(multi_buffer_snapshot.range_for_buffer(buffer_id));
-            if let Some(companion) = &self.companion
-                && companion.inverse.is_some()
-            {
-                if let Some(diff) = multi_buffer_snapshot.diff_for_buffer_id(buffer_id) {
-                    let companion_buffer_id =
-                        if companion.companion.is_rhs(companion.display_map_id) {
-                            diff.base_text().remote_id()
-                        } else {
-                            diff.buffer_id()
-                        };
-                    companion_buffer_ids.insert(companion_buffer_id);
-                }
-            }
         }
         ranges.sort_unstable_by_key(|range| range.start);
 
@@ -2089,16 +2051,6 @@ impl BlockMapWriter<'_> {
                 .as_ref()
                 .map(BlockMapWriterCompanion::companion_view),
         );
-        if let Some(companion) = &mut self.companion
-            && let Some(inverse) = &mut companion.inverse
-        {
-            inverse.companion_writer.fold_or_unfold_buffers(
-                fold,
-                companion_buffer_ids,
-                inverse.companion_multibuffer,
-                cx,
-            );
-        }
     }
 
     #[ztracing::instrument(skip_all)]
@@ -2141,10 +2093,7 @@ impl BlockSnapshot {
     pub fn text(&self) -> String {
         self.chunks(
             BlockRow(0)..self.transforms.summary().output_rows,
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling { tree_sitter: false },
             false,
             Highlights::default(),
         )
@@ -2867,12 +2816,9 @@ fn offset_for_row(s: &str, target: RowDelta) -> (RowDelta, usize) {
 mod tests {
     use super::*;
     use crate::{
-        display_map::{
-            Companion, fold_map::FoldMap, inlay_map::InlayMap, tab_map::TabMap, wrap_map::WrapMap,
-        },
+        display_map::{fold_map::FoldMap, inlay_map::InlayMap, tab_map::TabMap, wrap_map::WrapMap},
         test::test_font,
     };
-    use buffer_diff::BufferDiff;
     use gpui::{App, AppContext as _, Element, div, font, px};
     use itertools::Itertools;
     use language::{Buffer, Capability, Point};
@@ -4303,10 +4249,7 @@ mod tests {
                 let actual_text = blocks_snapshot
                     .chunks(
                         BlockRow(start_row as u32)..BlockRow(end_row as u32),
-                        LanguageAwareStyling {
-                            tree_sitter: false,
-                            diagnostics: false,
-                        },
+                        LanguageAwareStyling { tree_sitter: false },
                         false,
                         Highlights::default(),
                     )
@@ -4620,228 +4563,10 @@ mod tests {
         assert_eq!(blocks_snapshot.text(), "");
     }
 
-    #[gpui::test]
-    fn test_companion_spacer_blocks(cx: &mut gpui::TestAppContext) {
-        cx.update(init_test);
-
-        let base_text = "aaa\nbbb\nccc\nddd\nddd\nddd\neee\n";
-        let main_text = "aaa\nddd\nddd\nddd\nXXX\nYYY\nZZZ\neee\n";
-
-        let rhs_buffer = cx.new(|cx| Buffer::local(main_text, cx));
-        let diff = cx.new(|cx| {
-            BufferDiff::new_with_base_text(base_text, &rhs_buffer.read(cx).text_snapshot(), cx)
-        });
-        let lhs_buffer = diff.read_with(cx, |diff, _| diff.base_text_buffer().clone());
-
-        let lhs_multibuffer = cx.new(|cx| {
-            let mut mb = MultiBuffer::new(Capability::ReadWrite);
-            mb.set_excerpts_for_buffer(
-                lhs_buffer.clone(),
-                [Point::zero()..lhs_buffer.read(cx).max_point()],
-                0,
-                cx,
-            );
-            mb.add_inverted_diff(diff.clone(), rhs_buffer.clone(), cx);
-            mb
-        });
-        let rhs_multibuffer = cx.new(|cx| {
-            let mut mb = MultiBuffer::new(Capability::ReadWrite);
-            mb.set_excerpts_for_buffer(
-                rhs_buffer.clone(),
-                [Point::zero()..rhs_buffer.read(cx).max_point()],
-                0,
-                cx,
-            );
-            mb.add_diff(diff.clone(), cx);
-            mb
-        });
-        let subscription =
-            rhs_multibuffer.update(cx, |rhs_multibuffer, _| rhs_multibuffer.subscribe());
-
-        let lhs_buffer_snapshot = cx.update(|cx| lhs_multibuffer.read(cx).snapshot(cx));
-        let (mut _lhs_inlay_map, lhs_inlay_snapshot) = InlayMap::new(lhs_buffer_snapshot);
-        let (mut _lhs_fold_map, lhs_fold_snapshot) = FoldMap::new(lhs_inlay_snapshot);
-        let (mut _lhs_tab_map, lhs_tab_snapshot) =
-            TabMap::new(lhs_fold_snapshot, 4.try_into().unwrap());
-        let (_lhs_wrap_map, lhs_wrap_snapshot) =
-            cx.update(|cx| WrapMap::new(lhs_tab_snapshot, font("Helvetica"), px(14.0), None, cx));
-        let lhs_block_map = BlockMap::new(lhs_wrap_snapshot.clone(), 0, 0);
-
-        let rhs_buffer_snapshot = cx.update(|cx| rhs_multibuffer.read(cx).snapshot(cx));
-        let (mut rhs_inlay_map, rhs_inlay_snapshot) = InlayMap::new(rhs_buffer_snapshot);
-        let (mut rhs_fold_map, rhs_fold_snapshot) = FoldMap::new(rhs_inlay_snapshot);
-        let (mut rhs_tab_map, rhs_tab_snapshot) =
-            TabMap::new(rhs_fold_snapshot, 4.try_into().unwrap());
-        let (_rhs_wrap_map, rhs_wrap_snapshot) =
-            cx.update(|cx| WrapMap::new(rhs_tab_snapshot, font("Helvetica"), px(14.0), None, cx));
-        let rhs_block_map = BlockMap::new(rhs_wrap_snapshot.clone(), 0, 0);
-
-        let rhs_entity_id = rhs_multibuffer.entity_id();
-
-        let companion = cx.new(|_| Companion::new(rhs_entity_id));
-
-        let rhs_edits = Patch::new(vec![text::Edit {
-            old: WrapRow(0)..rhs_wrap_snapshot.max_point().row(),
-            new: WrapRow(0)..rhs_wrap_snapshot.max_point().row(),
-        }]);
-        let lhs_edits = Patch::new(vec![text::Edit {
-            old: WrapRow(0)..lhs_wrap_snapshot.max_point().row(),
-            new: WrapRow(0)..lhs_wrap_snapshot.max_point().row(),
-        }]);
-
-        let rhs_snapshot = companion.read_with(cx, |companion, _cx| {
-            rhs_block_map.read(
-                rhs_wrap_snapshot.clone(),
-                rhs_edits.clone(),
-                Some(CompanionView::new(
-                    rhs_entity_id,
-                    &lhs_wrap_snapshot,
-                    &lhs_edits,
-                    companion,
-                )),
-            )
-        });
-
-        let lhs_entity_id = lhs_multibuffer.entity_id();
-        let lhs_snapshot = companion.read_with(cx, |companion, _cx| {
-            lhs_block_map.read(
-                lhs_wrap_snapshot.clone(),
-                lhs_edits.clone(),
-                Some(CompanionView::new(
-                    lhs_entity_id,
-                    &rhs_wrap_snapshot,
-                    &rhs_edits,
-                    companion,
-                )),
-            )
-        });
-
-        // LHS:
-        //   aaa
-        // - bbb
-        // - ccc
-        //   ddd
-        //   ddd
-        //   ddd
-        //   <extra line>
-        //   <extra line>
-        //   <extra line>
-        //   *eee
-        //
-        // RHS:
-        //   aaa
-        //   <extra line>
-        //   <extra line>
-        //   ddd
-        //   ddd
-        //   ddd
-        // + XXX
-        // + YYY
-        // + ZZZ
-        //   eee
-
-        assert_eq!(
-            rhs_snapshot.snapshot.text(),
-            "aaa\n\n\nddd\nddd\nddd\nXXX\nYYY\nZZZ\neee\n",
-            "RHS should have 2 spacer lines after 'aaa' to align with LHS's deleted lines"
-        );
-
-        assert_eq!(
-            lhs_snapshot.snapshot.text(),
-            "aaa\nbbb\nccc\nddd\nddd\nddd\n\n\n\neee\n",
-            "LHS should have 3 spacer lines in place of RHS's inserted lines"
-        );
-
-        // LHS:
-        //   aaa
-        // - bbb
-        // - ccc
-        //   ddd
-        //   ddd
-        //   ddd
-        //   <extra line>
-        //   <extra line>
-        //   <extra line>
-        //   eee
-        //
-        // RHS:
-        //   aaa
-        //   <extra line>
-        //   <extra line>
-        //   ddd
-        //   foo
-        //   foo
-        //   foo
-        //   ddd
-        //   ddd
-        // + XXX
-        // + YYY
-        // + ZZZ
-        //   eee
-
-        let rhs_buffer_snapshot = rhs_multibuffer.update(cx, |multibuffer, cx| {
-            multibuffer.edit(
-                [(Point::new(2, 0)..Point::new(2, 0), "foo\nfoo\nfoo\n")],
-                None,
-                cx,
-            );
-            multibuffer.snapshot(cx)
-        });
-
-        let (rhs_inlay_snapshot, rhs_inlay_edits) =
-            rhs_inlay_map.sync(rhs_buffer_snapshot, subscription.consume().into_inner());
-        let (rhs_fold_snapshot, rhs_fold_edits) =
-            rhs_fold_map.read(rhs_inlay_snapshot, rhs_inlay_edits);
-        let (rhs_tab_snapshot, rhs_tab_edits) =
-            rhs_tab_map.sync(rhs_fold_snapshot, rhs_fold_edits, 4.try_into().unwrap());
-        let (rhs_wrap_snapshot, rhs_wrap_edits) = _rhs_wrap_map.update(cx, |wrap_map, cx| {
-            wrap_map.sync(rhs_tab_snapshot, rhs_tab_edits, cx)
-        });
-
-        let rhs_snapshot = companion.read_with(cx, |companion, _cx| {
-            rhs_block_map.read(
-                rhs_wrap_snapshot.clone(),
-                rhs_wrap_edits.clone(),
-                Some(CompanionView::new(
-                    rhs_entity_id,
-                    &lhs_wrap_snapshot,
-                    &Default::default(),
-                    companion,
-                )),
-            )
-        });
-
-        let lhs_snapshot = companion.read_with(cx, |companion, _cx| {
-            lhs_block_map.read(
-                lhs_wrap_snapshot.clone(),
-                Default::default(),
-                Some(CompanionView::new(
-                    lhs_entity_id,
-                    &rhs_wrap_snapshot,
-                    &rhs_wrap_edits,
-                    companion,
-                )),
-            )
-        });
-
-        assert_eq!(
-            rhs_snapshot.snapshot.text(),
-            "aaa\n\n\nddd\nfoo\nfoo\nfoo\nddd\nddd\nXXX\nYYY\nZZZ\neee\n",
-            "RHS should have the insertion"
-        );
-
-        assert_eq!(
-            lhs_snapshot.snapshot.text(),
-            "aaa\nbbb\nccc\nddd\n\n\n\nddd\nddd\n\n\n\neee\n",
-            "LHS should have 3 more spacer lines to balance the insertion"
-        );
-    }
-
     fn init_test(cx: &mut gpui::App) {
         let settings = SettingsStore::test(cx);
         cx.set_global(settings);
         theme_settings::init(theme::LoadThemes::JustBase, cx);
-        assets::Assets.load_test_fonts(cx);
     }
 
     impl Block {

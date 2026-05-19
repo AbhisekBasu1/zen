@@ -1,9 +1,8 @@
 pub mod row_chunk;
 
 use crate::{
-    ByteContent, LanguageScope, ModelineSettings, Outline, OutlineConfig, PLAIN_TEXT, TextObject,
-    TreeSitterOptions, analyze_byte_content,
-    diagnostic_set::{DiagnosticEntry, DiagnosticEntryRef, DiagnosticGroup},
+    ByteContent, LanguageScope, Outline, OutlineConfig, PLAIN_TEXT, TextObject, TreeSitterOptions,
+    analyze_byte_content,
     language_settings::{AutoIndentMode, LanguageSettings},
     outline::OutlineItem,
     row_chunk::RowChunks,
@@ -14,12 +13,9 @@ use crate::{
     text_diff::text_diff,
     unified_diff_with_offsets,
 };
-pub use crate::{
-    Grammar, HighlightId, HighlightMap, Language, LanguageRegistry, diagnostic_set::DiagnosticSet,
-    proto,
-};
+pub use crate::{Grammar, HighlightId, HighlightMap, Language, LanguageRegistry};
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use clock::Lamport;
 pub use clock::ReplicaId;
 use collections::{HashMap, HashSet};
@@ -32,7 +28,6 @@ use gpui::{
     Task, TextStyle,
 };
 
-use lsp::LanguageServerId;
 use parking_lot::Mutex;
 use settings::WorktreeId;
 use std::{
@@ -40,9 +35,9 @@ use std::{
     borrow::Cow,
     cell::Cell,
     cmp::{self, Ordering, Reverse},
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     future::Future,
-    iter::{self, Iterator, Peekable},
+    iter::{self, Iterator},
     mem,
     num::NonZeroU32,
     ops::{Deref, Range},
@@ -64,12 +59,10 @@ pub use text::{
 use theme::{ActiveTheme as _, SyntaxTheme};
 #[cfg(any(test, feature = "test-support"))]
 use util::RandomCharIter;
-use util::{RangeExt, debug_panic, maybe, paths::PathStyle, rel_path::RelPath};
+use util::{RangeExt, maybe, paths::PathStyle, rel_path::RelPath};
 
 #[cfg(any(test, feature = "test-support"))]
-pub use {tree_sitter_python, tree_sitter_rust, tree_sitter_typescript};
-
-pub use lsp::DiagnosticSeverity;
+pub use tree_sitter_md;
 
 /// Indicate whether a [`Buffer`] has permissions to edit.
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -98,7 +91,7 @@ pub enum AuthorshipSource {
 pub type BufferRow = u32;
 
 /// An in-memory representation of a source code file, including its text,
-/// syntax trees, git status, and diagnostics.
+/// syntax trees, and git status.
 pub struct Buffer {
     text: TextBuffer,
     branch_state: Option<BufferBranchState>,
@@ -123,12 +116,7 @@ pub struct Buffer {
     reparse: Option<Task<()>>,
     parse_status: (watch::Sender<ParseStatus>, watch::Receiver<ParseStatus>),
     non_text_state_update_count: usize,
-    diagnostics: TreeMap<LanguageServerId, DiagnosticSet>,
     remote_selections: TreeMap<ReplicaId, SelectionSet>,
-    diagnostics_timestamp: clock::Lamport,
-    completion_triggers: BTreeSet<String>,
-    completion_triggers_per_language_server: HashMap<LanguageServerId, BTreeSet<String>>,
-    completion_triggers_timestamp: clock::Lamport,
     deferred_ops: OperationQueue<Operation>,
     capability: Capability,
     has_conflict: bool,
@@ -136,7 +124,6 @@ pub struct Buffer {
     /// The contents of a cell are (self.version, has_changes) at the time of a last call.
     has_unsaved_edits: Cell<(clock::Global, bool)>,
     change_bits: Vec<rc::Weak<Cell<bool>>>,
-    modeline: Option<Arc<ModelineSettings>>,
     _subscriptions: Vec<gpui::Subscription>,
     tree_sitter_data: Arc<TreeSitterData>,
     encoding: &'static Encoding,
@@ -192,13 +179,11 @@ pub struct BufferSnapshot {
     pub text: text::BufferSnapshot,
     pub(crate) syntax: SyntaxSnapshot,
     tree_sitter_data: Arc<TreeSitterData>,
-    diagnostics: TreeMap<LanguageServerId, DiagnosticSet>,
     remote_selections: TreeMap<ReplicaId, SelectionSet>,
     language: Option<Arc<Language>>,
     file: Option<Arc<dyn File>>,
     non_text_state_update_count: usize,
     pub capability: Capability,
-    modeline: Option<Arc<ModelineSettings>>,
 }
 
 /// The kind and amount of indentation in a particular line. For now,
@@ -260,16 +245,6 @@ pub enum Operation {
     /// A text operation.
     Buffer(text::Operation),
 
-    /// An update to the buffer's diagnostics.
-    UpdateDiagnostics {
-        /// The id of the language server that produced the new diagnostics.
-        server_id: LanguageServerId,
-        /// The diagnostics.
-        diagnostics: Arc<[DiagnosticEntry<Anchor>]>,
-        /// The buffer's lamport timestamp.
-        lamport_timestamp: clock::Lamport,
-    },
-
     /// An update to the most recent selections in this buffer.
     UpdateSelections {
         /// The selections.
@@ -280,17 +255,6 @@ pub enum Operation {
         line_mode: bool,
         /// The [`CursorShape`] associated with these selections.
         cursor_shape: CursorShape,
-    },
-
-    /// An update to the characters that should trigger autocompletion
-    /// for this buffer.
-    UpdateCompletionTriggers {
-        /// The characters that trigger autocompletion.
-        triggers: Vec<String>,
-        /// The buffer's lamport timestamp.
-        lamport_timestamp: clock::Lamport,
-        /// The language server ID.
-        server_id: LanguageServerId,
     },
 
     /// An update to the line ending type of this buffer.
@@ -328,8 +292,6 @@ pub enum BufferEvent {
     LanguageChanged(bool),
     /// The buffer's syntax trees were updated.
     Reparsed,
-    /// The buffer's diagnostics were updated.
-    DiagnosticsUpdated,
     /// The buffer gained or lost editing capabilities.
     CapabilityChanged,
 }
@@ -367,9 +329,6 @@ pub trait File: Send + Sync + Any {
     ///
     /// This is needed for looking up project-specific settings.
     fn worktree_id(&self, cx: &App) -> WorktreeId;
-
-    /// Converts this file into a protobuf message.
-    fn to_proto(&self, cx: &App) -> rpc::proto::File;
 
     /// Return whether Zed considers this to be a private file.
     fn is_private(&self) -> bool;
@@ -507,23 +466,16 @@ struct BufferChunkHighlights<'a> {
 }
 
 /// An iterator that yields chunks of a buffer's text, along with their
-/// syntax highlights and diagnostic status.
+/// syntax highlights.
 pub struct BufferChunks<'a> {
     buffer_snapshot: Option<&'a BufferSnapshot>,
     range: Range<usize>,
     chunks: text::Chunks<'a>,
-    diagnostic_endpoints: Option<Peekable<vec::IntoIter<DiagnosticEndpoint>>>,
-    error_depth: usize,
-    warning_depth: usize,
-    information_depth: usize,
-    hint_depth: usize,
-    unnecessary_depth: usize,
-    underline: bool,
     highlights: Option<BufferChunkHighlights<'a>>,
 }
 
 /// A chunk of a buffer's text, along with its syntax highlight and
-/// diagnostic status.
+/// editor highlight state.
 #[derive(Clone, Debug, Default)]
 pub struct Chunk<'a> {
     /// The text of the chunk.
@@ -533,22 +485,16 @@ pub struct Chunk<'a> {
     /// The highlight style that has been applied to this chunk in
     /// the editor.
     pub highlight_style: Option<HighlightStyle>,
-    /// The severity of diagnostic associated with this chunk, if any.
-    pub diagnostic_severity: Option<DiagnosticSeverity>,
     /// A bitset of which characters are tabs in this string.
     pub tabs: u128,
     /// Bitmap of character indices in this chunk
     pub chars: u128,
     /// Bitmap of newline indices in this chunk
     pub newlines: u128,
-    /// Whether this chunk of text is marked as unnecessary.
-    pub is_unnecessary: bool,
     /// Whether this chunk of text was originally a tab character.
     pub is_tab: bool,
     /// Whether this chunk of text was originally an inlay.
     pub is_inlay: bool,
-    /// Whether to underline the corresponding text range in the editor.
-    pub underline: bool,
 }
 
 /// A set of edits to a given version of a buffer, computed asynchronously.
@@ -557,15 +503,6 @@ pub struct Diff {
     pub base_version: clock::Global,
     pub line_ending: LineEnding,
     pub edits: Vec<(Range<usize>, Arc<str>)>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct DiagnosticEndpoint {
-    offset: usize,
-    is_start: bool,
-    underline: bool,
-    severity: DiagnosticSeverity,
-    is_unnecessary: bool,
 }
 
 /// A class of characters, used for characterizing a run of text.
@@ -577,23 +514,6 @@ pub enum CharKind {
     Punctuation,
     /// Word.
     Word,
-}
-
-/// Context for character classification within a specific scope.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum CharScopeContext {
-    /// Character classification for completion queries.
-    ///
-    /// This context treats certain characters as word constituents that would
-    /// normally be considered punctuation, such as '-' in Tailwind classes
-    /// ("bg-yellow-100") or '.' in import paths ("foo.ts").
-    Completion,
-    /// Character classification for linked edits.
-    ///
-    /// This context handles characters that should be treated as part of
-    /// identifiers during linked editing operations, such as '.' in JSX
-    /// component names like `<Animated.View>`.
-    LinkedEdit,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -727,7 +647,6 @@ impl HighlightedTextBuilder {
             snapshot.as_rope(),
             range,
             Some((captures, highlight_maps)),
-            false,
             None,
         )
     }
@@ -958,101 +877,6 @@ impl Buffer {
         )
     }
 
-    /// Create a new buffer that is a replica of a remote buffer.
-    pub fn remote(
-        remote_id: BufferId,
-        replica_id: ReplicaId,
-        capability: Capability,
-        base_text: impl Into<String>,
-    ) -> Self {
-        Self::build(
-            TextBuffer::new(replica_id, remote_id, base_text.into()),
-            None,
-            capability,
-        )
-    }
-
-    /// Create a new buffer that is a replica of a remote buffer, populating its
-    /// state from the given protobuf message.
-    pub fn from_proto(
-        replica_id: ReplicaId,
-        capability: Capability,
-        message: proto::BufferState,
-        file: Option<Arc<dyn File>>,
-    ) -> Result<Self> {
-        let buffer_id = BufferId::new(message.id).context("Could not deserialize buffer_id")?;
-        let buffer = TextBuffer::new(replica_id, buffer_id, message.base_text);
-        let mut this = Self::build(buffer, file, capability);
-        this.text.set_line_ending(proto::deserialize_line_ending(
-            rpc::proto::LineEnding::from_i32(message.line_ending).context("missing line_ending")?,
-        ));
-        this.saved_version = proto::deserialize_version(&message.saved_version);
-        this.saved_mtime = message.saved_mtime.map(|time| time.into());
-        Ok(this)
-    }
-
-    /// Serialize the buffer's state to a protobuf message.
-    pub fn to_proto(&self, cx: &App) -> proto::BufferState {
-        proto::BufferState {
-            id: self.remote_id().into(),
-            file: self.file.as_ref().map(|f| f.to_proto(cx)),
-            base_text: self.base_text().to_string(),
-            line_ending: proto::serialize_line_ending(self.line_ending()) as i32,
-            saved_version: proto::serialize_version(&self.saved_version),
-            saved_mtime: self.saved_mtime.map(|time| time.into()),
-        }
-    }
-
-    /// Serialize as protobufs all of the changes to the buffer since the given version.
-    pub fn serialize_ops(
-        &self,
-        since: Option<clock::Global>,
-        cx: &App,
-    ) -> Task<Vec<proto::Operation>> {
-        let mut operations = Vec::new();
-        operations.extend(self.deferred_ops.iter().map(proto::serialize_operation));
-
-        operations.extend(self.remote_selections.iter().map(|(_, set)| {
-            proto::serialize_operation(&Operation::UpdateSelections {
-                selections: set.selections.clone(),
-                lamport_timestamp: set.lamport_timestamp,
-                line_mode: set.line_mode,
-                cursor_shape: set.cursor_shape,
-            })
-        }));
-
-        for (server_id, diagnostics) in self.diagnostics.iter() {
-            operations.push(proto::serialize_operation(&Operation::UpdateDiagnostics {
-                lamport_timestamp: self.diagnostics_timestamp,
-                server_id: *server_id,
-                diagnostics: diagnostics.iter().cloned().collect(),
-            }));
-        }
-
-        for (server_id, completions) in &self.completion_triggers_per_language_server {
-            operations.push(proto::serialize_operation(
-                &Operation::UpdateCompletionTriggers {
-                    triggers: completions.iter().cloned().collect(),
-                    lamport_timestamp: self.completion_triggers_timestamp,
-                    server_id: *server_id,
-                },
-            ));
-        }
-
-        let text_operations = self.text.operations().clone();
-        cx.background_spawn(async move {
-            let since = since.unwrap_or_default();
-            operations.extend(
-                text_operations
-                    .iter()
-                    .filter(|(_, op)| !since.observed(op.timestamp()))
-                    .map(|(_, op)| proto::serialize_operation(&Operation::Buffer(op.clone()))),
-            );
-            operations.sort_unstable_by_key(proto::lamport_timestamp_for_operation);
-            operations
-        })
-    }
-
     /// Assign a language to the buffer, returning the buffer.
     pub fn with_language_async(mut self, language: Arc<Language>, cx: &mut Context<Self>) -> Self {
         self.set_language_async(Some(language), cx);
@@ -1109,15 +933,9 @@ impl Buffer {
             pending_autoindent: Default::default(),
             language: None,
             remote_selections: Default::default(),
-            diagnostics: Default::default(),
-            diagnostics_timestamp: Lamport::MIN,
-            completion_triggers: Default::default(),
-            completion_triggers_per_language_server: Default::default(),
-            completion_triggers_timestamp: Lamport::MIN,
             deferred_ops: OperationQueue::new(),
             has_conflict: false,
             change_bits: Default::default(),
-            modeline: None,
             _subscriptions: Vec::new(),
             encoding: encoding_rs::UTF_8,
             has_bom: false,
@@ -1131,7 +949,6 @@ impl Buffer {
         text: Rope,
         language: Option<Arc<Language>>,
         language_registry: Option<Arc<LanguageRegistry>>,
-        modeline: Option<Arc<ModelineSettings>>,
         cx: &mut App,
     ) -> impl Future<Output = BufferSnapshot> + use<> {
         let entity_id = cx.reserve_entity::<Self>().entity_id();
@@ -1150,13 +967,11 @@ impl Buffer {
                 text,
                 syntax,
                 file: None,
-                diagnostics: Default::default(),
                 remote_selections: Default::default(),
                 tree_sitter_data: Arc::new(tree_sitter_data),
                 language,
                 non_text_state_update_count: 0,
                 capability: Capability::ReadOnly,
-                modeline,
             }
         }
     }
@@ -1178,12 +993,10 @@ impl Buffer {
             syntax,
             tree_sitter_data: Arc::new(tree_sitter_data),
             file: None,
-            diagnostics: Default::default(),
             remote_selections: Default::default(),
             language: None,
             non_text_state_update_count: 0,
             capability: Capability::ReadOnly,
-            modeline: None,
         }
     }
 
@@ -1209,12 +1022,10 @@ impl Buffer {
             syntax,
             tree_sitter_data: Arc::new(tree_sitter_data),
             file: None,
-            diagnostics: Default::default(),
             remote_selections: Default::default(),
             language,
             non_text_state_update_count: 0,
             capability: Capability::ReadOnly,
-            modeline: None,
         }
     }
 
@@ -1241,11 +1052,9 @@ impl Buffer {
             tree_sitter_data,
             file: self.file.clone(),
             remote_selections: self.remote_selections.clone(),
-            diagnostics: self.diagnostics.clone(),
             language: self.language.clone(),
             non_text_state_update_count: self.non_text_state_update_count,
             capability: self.capability,
-            modeline: self.modeline.clone(),
         }
     }
 
@@ -1307,61 +1116,6 @@ impl Buffer {
         })
     }
 
-    /// Applies all of the changes in this buffer that intersect any of the
-    /// given `ranges` to its base buffer.
-    ///
-    /// If `ranges` is empty, then all changes will be applied. This buffer must
-    /// be a branch buffer to call this method.
-    pub fn merge_into_base(&mut self, ranges: Vec<Range<usize>>, cx: &mut Context<Self>) {
-        let Some(base_buffer) = self.base_buffer() else {
-            debug_panic!("not a branch buffer");
-            return;
-        };
-
-        let mut ranges = if ranges.is_empty() {
-            &[0..usize::MAX]
-        } else {
-            ranges.as_slice()
-        }
-        .iter()
-        .peekable();
-
-        let mut edits = Vec::new();
-        for edit in self.edits_since::<usize>(&base_buffer.read(cx).version()) {
-            let mut is_included = false;
-            while let Some(range) = ranges.peek() {
-                if range.end < edit.new.start {
-                    ranges.next().unwrap();
-                } else {
-                    if range.start <= edit.new.end {
-                        is_included = true;
-                    }
-                    break;
-                }
-            }
-
-            if is_included {
-                edits.push((
-                    edit.old.clone(),
-                    self.text_for_range(edit.new.clone()).collect::<String>(),
-                ));
-            }
-        }
-
-        let operation = base_buffer.update(cx, |base_buffer, cx| {
-            // cx.emit(BufferEvent::DiffBaseChanged);
-            base_buffer.edit(edits, None, cx)
-        });
-
-        if let Some(operation) = operation
-            && let Some(BufferBranchState {
-                merged_operations, ..
-            }) = &mut self.branch_state
-        {
-            merged_operations.push(operation);
-        }
-    }
-
     fn on_base_buffer_event(
         &mut self,
         _: Entity<Buffer>,
@@ -1399,7 +1153,7 @@ impl Buffer {
     }
 
     /// Retrieve a snapshot of the buffer's raw text, without any
-    /// language-related state like the syntax tree or diagnostics.
+    /// language-related state like the syntax tree.
     #[ztracing::instrument(skip_all)]
     pub fn text_snapshot(&self) -> text::BufferSnapshot {
         // todo lw
@@ -1496,21 +1250,6 @@ impl Buffer {
             true,
             cx,
         );
-    }
-
-    /// Assign the buffer [`ModelineSettings`].
-    pub fn set_modeline(&mut self, modeline: Option<ModelineSettings>) -> bool {
-        if modeline.as_ref() != self.modeline.as_deref() {
-            self.modeline = modeline.map(Arc::new);
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Returns the [`ModelineSettings`].
-    pub fn modeline(&self) -> Option<&Arc<ModelineSettings>> {
-        self.modeline.as_ref()
     }
 
     /// Assign the buffer a new [`Capability`].
@@ -1912,41 +1651,6 @@ impl Buffer {
                     break;
                 }
             }
-        }
-    }
-
-    /// Assign to the buffer a set of diagnostics created by a given language server.
-    pub fn update_diagnostics(
-        &mut self,
-        server_id: LanguageServerId,
-        diagnostics: DiagnosticSet,
-        cx: &mut Context<Self>,
-    ) {
-        let lamport_timestamp = self.text.lamport_clock.tick();
-        let op = Operation::UpdateDiagnostics {
-            server_id,
-            diagnostics: diagnostics.iter().cloned().collect(),
-            lamport_timestamp,
-        };
-
-        self.apply_diagnostic_update(server_id, diagnostics, lamport_timestamp, cx);
-        self.send_operation(op, true, cx);
-    }
-
-    pub fn buffer_diagnostics(
-        &self,
-        for_server: Option<LanguageServerId>,
-    ) -> Vec<&DiagnosticEntry<Anchor>> {
-        match for_server {
-            Some(server_id) => self
-                .diagnostics
-                .get(&server_id)
-                .map_or_else(Vec::new, |diagnostics| diagnostics.iter().collect()),
-            None => self
-                .diagnostics
-                .iter()
-                .flat_map(|(_, diagnostic_set)| diagnostic_set.iter())
-                .collect(),
         }
     }
 
@@ -3102,37 +2806,17 @@ impl Buffer {
             Operation::Buffer(_) => {
                 unreachable!("buffer operations should never be applied at this layer")
             }
-            Operation::UpdateDiagnostics {
-                diagnostics: diagnostic_set,
-                ..
-            } => diagnostic_set.iter().all(|diagnostic| {
-                self.text.can_resolve(&diagnostic.range.start)
-                    && self.text.can_resolve(&diagnostic.range.end)
-            }),
             Operation::UpdateSelections { selections, .. } => selections
                 .iter()
                 .all(|s| self.can_resolve(&s.start) && self.can_resolve(&s.end)),
-            Operation::UpdateCompletionTriggers { .. } | Operation::UpdateLineEnding { .. } => true,
+            Operation::UpdateLineEnding { .. } => true,
         }
     }
 
-    fn apply_op(&mut self, operation: Operation, cx: &mut Context<Self>) {
+    fn apply_op(&mut self, operation: Operation, _cx: &mut Context<Self>) {
         match operation {
             Operation::Buffer(_) => {
                 unreachable!("buffer operations should never be applied at this layer")
-            }
-            Operation::UpdateDiagnostics {
-                server_id,
-                diagnostics: diagnostic_set,
-                lamport_timestamp,
-            } => {
-                let snapshot = self.snapshot();
-                self.apply_diagnostic_update(
-                    server_id,
-                    DiagnosticSet::from_sorted_entries(diagnostic_set.iter().cloned(), &snapshot),
-                    lamport_timestamp,
-                    cx,
-                );
             }
             Operation::UpdateSelections {
                 selections,
@@ -3158,26 +2842,6 @@ impl Buffer {
                 self.text.lamport_clock.observe(lamport_timestamp);
                 self.non_text_state_update_count += 1;
             }
-            Operation::UpdateCompletionTriggers {
-                triggers,
-                lamport_timestamp,
-                server_id,
-            } => {
-                if triggers.is_empty() {
-                    self.completion_triggers_per_language_server
-                        .remove(&server_id);
-                    self.completion_triggers = self
-                        .completion_triggers_per_language_server
-                        .values()
-                        .flat_map(|triggers| triggers.iter().cloned())
-                        .collect();
-                } else {
-                    self.completion_triggers_per_language_server
-                        .insert(server_id, triggers.iter().cloned().collect());
-                    self.completion_triggers.extend(triggers);
-                }
-                self.text.lamport_clock.observe(lamport_timestamp);
-            }
             Operation::UpdateLineEnding {
                 line_ending,
                 lamport_timestamp,
@@ -3185,27 +2849,6 @@ impl Buffer {
                 self.text.set_line_ending(line_ending);
                 self.text.lamport_clock.observe(lamport_timestamp);
             }
-        }
-    }
-
-    fn apply_diagnostic_update(
-        &mut self,
-        server_id: LanguageServerId,
-        diagnostics: DiagnosticSet,
-        lamport_timestamp: clock::Lamport,
-        cx: &mut Context<Self>,
-    ) {
-        if lamport_timestamp > self.diagnostics_timestamp {
-            if diagnostics.is_empty() {
-                self.diagnostics.remove(&server_id);
-            } else {
-                self.diagnostics.insert(server_id, diagnostics);
-            }
-            self.diagnostics_timestamp = lamport_timestamp;
-            self.non_text_state_update_count += 1;
-            self.text.lamport_clock.observe(lamport_timestamp);
-            cx.notify();
-            cx.emit(BufferEvent::DiagnosticsUpdated);
         }
     }
 
@@ -3336,45 +2979,6 @@ impl Buffer {
         redone
     }
 
-    /// Override current completion triggers with the user-provided completion triggers.
-    pub fn set_completion_triggers(
-        &mut self,
-        server_id: LanguageServerId,
-        triggers: BTreeSet<String>,
-        cx: &mut Context<Self>,
-    ) {
-        self.completion_triggers_timestamp = self.text.lamport_clock.tick();
-        if triggers.is_empty() {
-            self.completion_triggers_per_language_server
-                .remove(&server_id);
-            self.completion_triggers = self
-                .completion_triggers_per_language_server
-                .values()
-                .flat_map(|triggers| triggers.iter().cloned())
-                .collect();
-        } else {
-            self.completion_triggers_per_language_server
-                .insert(server_id, triggers.clone());
-            self.completion_triggers.extend(triggers.iter().cloned());
-        }
-        self.send_operation(
-            Operation::UpdateCompletionTriggers {
-                triggers: triggers.into_iter().collect(),
-                lamport_timestamp: self.completion_triggers_timestamp,
-                server_id,
-            },
-            true,
-            cx,
-        );
-        cx.notify();
-    }
-
-    /// Returns a list of strings which trigger a completion menu for this language.
-    /// Usually this is driven by LSP server which returns a list of trigger characters for completions.
-    pub fn completion_triggers(&self) -> &BTreeSet<String> {
-        &self.completion_triggers
-    }
-
     /// Call this directly after performing edits to prevent the preview tab
     /// from being dismissed by those edits. It causes `should_dismiss_preview`
     /// to return false until there are additional edits.
@@ -3448,13 +3052,6 @@ fn transform_human_authorship_offset_ranges_for_edit(
                     add_offset_delta(range.start, delta)..add_offset_delta(human_range.end, delta),
                 );
             }
-        } else if human_range.end <= range.start {
-            transformed.push(human_range);
-        } else if human_range.start >= range.end {
-            transformed.push(
-                add_offset_delta(human_range.start, delta)
-                    ..add_offset_delta(human_range.end, delta),
-            );
         } else {
             if human_range.start < range.start {
                 transformed.push(human_range.start..range.start);
@@ -3494,71 +3091,6 @@ fn add_offset_delta(offset: usize, delta: isize) -> usize {
         offset.saturating_sub(delta.unsigned_abs())
     } else {
         offset.saturating_add(delta as usize)
-    }
-}
-
-#[cfg(test)]
-mod authorship_tests {
-    use super::*;
-
-    #[test]
-    fn human_insertions_are_tracked() {
-        assert_eq!(
-            transform_human_authorship_offset_ranges(
-                Vec::new(),
-                &[(0..0, 5)],
-                AuthorshipSource::Human
-            ),
-            vec![0..5]
-        );
-    }
-
-    #[test]
-    fn agent_insertions_split_human_ranges() {
-        assert_eq!(
-            transform_human_authorship_offset_ranges(
-                vec![0..10],
-                &[(5..5, 2)],
-                AuthorshipSource::Agent
-            ),
-            vec![0..5, 7..12]
-        );
-    }
-
-    #[test]
-    fn human_replacements_mark_new_text_as_human() {
-        assert_eq!(
-            transform_human_authorship_offset_ranges(
-                vec![0..10],
-                &[(2..4, 3)],
-                AuthorshipSource::Human
-            ),
-            vec![0..11]
-        );
-    }
-
-    #[test]
-    fn agent_replacements_preserve_only_unchanged_human_text() {
-        assert_eq!(
-            transform_human_authorship_offset_ranges(
-                vec![0..10],
-                &[(2..4, 3)],
-                AuthorshipSource::Agent
-            ),
-            vec![0..2, 5..11]
-        );
-    }
-
-    #[test]
-    fn sequential_edits_adjust_later_ranges() {
-        assert_eq!(
-            transform_human_authorship_offset_ranges(
-                vec![10..20],
-                &[(0..0, 5), (12..14, 0)],
-                AuthorshipSource::Agent
-            ),
-            vec![15..23]
-        );
     }
 }
 
@@ -4012,8 +3544,7 @@ impl BufferSnapshot {
 
     /// Iterates over chunks of text in the given range of the buffer. Text is chunked
     /// in an arbitrary way due to being stored in a [`Rope`](text::Rope). The text is also
-    /// returned in chunks where each chunk has a single syntax highlighting style and
-    /// diagnostic status.
+    /// returned in chunks where each chunk has a single syntax highlighting style.
     #[ztracing::instrument(skip_all)]
     pub fn chunks<T: ToOffset>(
         &self,
@@ -4026,13 +3557,7 @@ impl BufferSnapshot {
         if language_aware.tree_sitter {
             syntax = Some(self.get_highlights(range.clone()));
         }
-        BufferChunks::new(
-            self.text.as_rope(),
-            range,
-            syntax,
-            language_aware.diagnostics,
-            Some(self),
-        )
+        BufferChunks::new(self.text.as_rope(), range, syntax, Some(self))
     }
 
     pub fn highlighted_text_for_range<T: ToOffset>(
@@ -4126,11 +3651,6 @@ impl BufferSnapshot {
             })
     }
 
-    /// Returns the [`ModelineSettings`].
-    pub fn modeline(&self) -> Option<&Arc<ModelineSettings>> {
-        self.modeline.as_ref()
-    }
-
     /// Returns the main [`Language`].
     pub fn language(&self) -> Option<&Arc<Language>> {
         self.language.as_ref()
@@ -4220,17 +3740,13 @@ impl BufferSnapshot {
 
     /// Returns a tuple of the range and character kind of the word
     /// surrounding the given position.
-    pub fn surrounding_word<T: ToOffset>(
-        &self,
-        start: T,
-        scope_context: Option<CharScopeContext>,
-    ) -> (Range<usize>, Option<CharKind>) {
+    pub fn surrounding_word<T: ToOffset>(&self, start: T) -> (Range<usize>, Option<CharKind>) {
         let mut start = start.to_offset(self);
         let mut end = start;
         let mut next_chars = self.chars_at(start).take(128).peekable();
         let mut prev_chars = self.reversed_chars_at(start).take(128).peekable();
 
-        let classifier = self.char_classifier_at(start).scope_context(scope_context);
+        let classifier = self.char_classifier_at(start);
         let word_kind = cmp::max(
             prev_chars.peek().copied().map(|c| classifier.kind(c)),
             next_chars.peek().copied().map(|c| classifier.kind(c)),
@@ -4778,10 +4294,7 @@ impl BufferSnapshot {
         let mut name_ranges = Vec::new();
         let mut chunks = self.chunks(
             source_range_for_text.clone(),
-            LanguageAwareStyling {
-                tree_sitter: true,
-                diagnostics: true,
-            },
+            LanguageAwareStyling { tree_sitter: true },
         );
         let mut last_buffer_range_end = 0;
         for (buffer_range, is_name) in buffer_ranges {
@@ -5395,100 +4908,6 @@ impl BufferSnapshot {
             })
     }
 
-    /// Returns if the buffer contains any diagnostics.
-    pub fn has_diagnostics(&self) -> bool {
-        !self.diagnostics.is_empty()
-    }
-
-    /// Returns all the diagnostics intersecting the given range.
-    pub fn diagnostics_in_range<'a, T, O>(
-        &'a self,
-        search_range: Range<T>,
-        reversed: bool,
-    ) -> impl 'a + Iterator<Item = DiagnosticEntryRef<'a, O>>
-    where
-        T: 'a + Clone + ToOffset,
-        O: 'a + FromAnchor,
-    {
-        let mut iterators: Vec<_> = self
-            .diagnostics
-            .iter()
-            .map(|(_, collection)| {
-                collection
-                    .range::<T, text::Anchor>(search_range.clone(), self, true, reversed)
-                    .peekable()
-            })
-            .collect();
-
-        std::iter::from_fn(move || {
-            let (next_ix, _) = iterators
-                .iter_mut()
-                .enumerate()
-                .flat_map(|(ix, iter)| Some((ix, iter.peek()?)))
-                .min_by(|(_, a), (_, b)| {
-                    let cmp = a
-                        .range
-                        .start
-                        .cmp(&b.range.start, self)
-                        // when range is equal, sort by diagnostic severity
-                        .then(a.diagnostic.severity.cmp(&b.diagnostic.severity))
-                        // and stabilize order with group_id
-                        .then(a.diagnostic.group_id.cmp(&b.diagnostic.group_id));
-                    if reversed { cmp.reverse() } else { cmp }
-                })?;
-            iterators[next_ix]
-                .next()
-                .map(
-                    |DiagnosticEntryRef { range, diagnostic }| DiagnosticEntryRef {
-                        diagnostic,
-                        range: FromAnchor::from_anchor(&range.start, self)
-                            ..FromAnchor::from_anchor(&range.end, self),
-                    },
-                )
-        })
-    }
-
-    /// Returns all the diagnostic groups associated with the given
-    /// language server ID. If no language server ID is provided,
-    /// all diagnostics groups are returned.
-    pub fn diagnostic_groups(
-        &self,
-        language_server_id: Option<LanguageServerId>,
-    ) -> Vec<(LanguageServerId, DiagnosticGroup<'_, Anchor>)> {
-        let mut groups = Vec::new();
-
-        if let Some(language_server_id) = language_server_id {
-            if let Some(set) = self.diagnostics.get(&language_server_id) {
-                set.groups(language_server_id, &mut groups, self);
-            }
-        } else {
-            for (language_server_id, diagnostics) in self.diagnostics.iter() {
-                diagnostics.groups(*language_server_id, &mut groups, self);
-            }
-        }
-
-        groups.sort_by(|(id_a, group_a), (id_b, group_b)| {
-            let a_start = &group_a.entries[group_a.primary_ix].range.start;
-            let b_start = &group_b.entries[group_b.primary_ix].range.start;
-            a_start.cmp(b_start, self).then_with(|| id_a.cmp(id_b))
-        });
-
-        groups
-    }
-
-    /// Returns an iterator over the diagnostics for the given group.
-    pub fn diagnostic_group<O>(
-        &self,
-        group_id: usize,
-    ) -> impl Iterator<Item = DiagnosticEntryRef<'_, O>> + use<'_, O>
-    where
-        O: FromAnchor + 'static,
-    {
-        self.diagnostics
-            .iter()
-            .flat_map(move |(_, set)| set.group(group_id, self))
-    }
-
     /// An integer version number that accounts for all updates besides
     /// the buffer's text itself (which is versioned via a version vector).
     pub fn non_text_state_update_count(&self) -> usize {
@@ -5516,68 +4935,6 @@ impl BufferSnapshot {
             None
         }
     }
-
-    pub fn words_in_range(&self, query: WordsQuery) -> BTreeMap<String, Range<Anchor>> {
-        let query_str = query.fuzzy_contents;
-        if query_str.is_some_and(|query| query.is_empty()) {
-            return BTreeMap::default();
-        }
-
-        let classifier = CharClassifier::new(self.language.clone().map(|language| LanguageScope {
-            language,
-            override_id: None,
-        }));
-
-        let mut query_ix = 0;
-        let query_chars = query_str.map(|query| query.chars().collect::<Vec<_>>());
-        let query_len = query_chars.as_ref().map_or(0, |query| query.len());
-
-        let mut words = BTreeMap::default();
-        let mut current_word_start_ix = None;
-        let mut chunk_ix = query.range.start;
-        for chunk in self.chunks(
-            query.range,
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
-        ) {
-            for (i, c) in chunk.text.char_indices() {
-                let ix = chunk_ix + i;
-                if classifier.is_word(c) {
-                    if current_word_start_ix.is_none() {
-                        current_word_start_ix = Some(ix);
-                    }
-
-                    if let Some(query_chars) = &query_chars
-                        && query_ix < query_len
-                        && c.to_lowercase().eq(query_chars[query_ix].to_lowercase())
-                    {
-                        query_ix += 1;
-                    }
-                    continue;
-                } else if let Some(word_start) = current_word_start_ix.take()
-                    && query_ix == query_len
-                {
-                    let word_range = self.anchor_before(word_start)..self.anchor_after(ix);
-                    let mut word_text = self.text_for_range(word_start..ix).peekable();
-                    let first_char = word_text
-                        .peek()
-                        .and_then(|first_chunk| first_chunk.chars().next());
-                    // Skip empty and "words" starting with digits as a heuristic to reduce useless completions
-                    if !query.skip_digits
-                        || first_char.is_none_or(|first_char| !first_char.is_digit(10))
-                    {
-                        words.insert(word_text.collect(), word_range);
-                    }
-                }
-                query_ix = 0;
-            }
-            chunk_ix += chunk.text.len();
-        }
-
-        words
-    }
 }
 
 /// A configuration to use when producing styled text chunks.
@@ -5585,17 +4942,6 @@ impl BufferSnapshot {
 pub struct LanguageAwareStyling {
     /// Whether to highlight text chunks using tree-sitter.
     pub tree_sitter: bool,
-    /// Whether to highlight text chunks based on the diagnostics data.
-    pub diagnostics: bool,
-}
-
-pub struct WordsQuery<'a> {
-    /// Only returns words with all chars from the fuzzy string in them.
-    pub fuzzy_contents: Option<&'a str>,
-    /// Skips words that start with a digit.
-    pub skip_digits: bool,
-    /// Buffer offset range, to look for words.
-    pub range: Range<usize>,
 }
 
 fn indent_size_for_line(text: &text::BufferSnapshot, row: u32) -> IndentSize {
@@ -5625,12 +4971,10 @@ impl Clone for BufferSnapshot {
             syntax: self.syntax.clone(),
             file: self.file.clone(),
             remote_selections: self.remote_selections.clone(),
-            diagnostics: self.diagnostics.clone(),
             language: self.language.clone(),
             tree_sitter_data: self.tree_sitter_data.clone(),
             non_text_state_update_count: self.non_text_state_update_count,
             capability: self.capability,
-            modeline: self.modeline.clone(),
         }
     }
 }
@@ -5650,7 +4994,6 @@ impl<'a> BufferChunks<'a> {
         text: &'a Rope,
         range: Range<usize>,
         syntax: Option<(SyntaxMapCaptures<'a>, Vec<HighlightMap>)>,
-        diagnostics: bool,
         buffer_snapshot: Option<&'a BufferSnapshot>,
     ) -> Self {
         let mut highlights = None;
@@ -5663,24 +5006,14 @@ impl<'a> BufferChunks<'a> {
             })
         }
 
-        let diagnostic_endpoints = diagnostics.then(|| Vec::new().into_iter().peekable());
         let chunks = text.chunks_in_range(range.clone());
 
-        let mut this = BufferChunks {
+        BufferChunks {
             range,
             buffer_snapshot,
             chunks,
-            diagnostic_endpoints,
-            error_depth: 0,
-            warning_depth: 0,
-            information_depth: 0,
-            hint_depth: 0,
-            unnecessary_depth: 0,
-            underline: true,
             highlights,
-        };
-        this.initialize_diagnostic_endpoints();
-        this
+        }
     }
 
     /// Seeks to the given byte offset in the buffer.
@@ -5723,38 +5056,6 @@ impl<'a> BufferChunks<'a> {
             }
 
             highlights.captures.set_byte_range(self.range.clone());
-            self.initialize_diagnostic_endpoints();
-        }
-    }
-
-    fn initialize_diagnostic_endpoints(&mut self) {
-        if let Some(diagnostics) = self.diagnostic_endpoints.as_mut()
-            && let Some(buffer) = self.buffer_snapshot
-        {
-            let mut diagnostic_endpoints = Vec::new();
-            for entry in buffer.diagnostics_in_range::<_, usize>(self.range.clone(), false) {
-                diagnostic_endpoints.push(DiagnosticEndpoint {
-                    offset: entry.range.start,
-                    is_start: true,
-                    severity: entry.diagnostic.severity,
-                    is_unnecessary: entry.diagnostic.is_unnecessary,
-                    underline: entry.diagnostic.underline,
-                });
-                diagnostic_endpoints.push(DiagnosticEndpoint {
-                    offset: entry.range.end,
-                    is_start: false,
-                    severity: entry.diagnostic.severity,
-                    is_unnecessary: entry.diagnostic.is_unnecessary,
-                    underline: entry.diagnostic.underline,
-                });
-            }
-            diagnostic_endpoints
-                .sort_unstable_by_key(|endpoint| (endpoint.offset, !endpoint.is_start));
-            *diagnostics = diagnostic_endpoints.into_iter().peekable();
-            self.hint_depth = 0;
-            self.error_depth = 0;
-            self.warning_depth = 0;
-            self.information_depth = 0;
         }
     }
 
@@ -5766,47 +5067,6 @@ impl<'a> BufferChunks<'a> {
     pub fn range(&self) -> Range<usize> {
         self.range.clone()
     }
-
-    fn update_diagnostic_depths(&mut self, endpoint: DiagnosticEndpoint) {
-        let depth = match endpoint.severity {
-            DiagnosticSeverity::ERROR => &mut self.error_depth,
-            DiagnosticSeverity::WARNING => &mut self.warning_depth,
-            DiagnosticSeverity::INFORMATION => &mut self.information_depth,
-            DiagnosticSeverity::HINT => &mut self.hint_depth,
-            _ => return,
-        };
-        if endpoint.is_start {
-            *depth += 1;
-        } else {
-            *depth -= 1;
-        }
-
-        if endpoint.is_unnecessary {
-            if endpoint.is_start {
-                self.unnecessary_depth += 1;
-            } else {
-                self.unnecessary_depth -= 1;
-            }
-        }
-    }
-
-    fn current_diagnostic_severity(&self) -> Option<DiagnosticSeverity> {
-        if self.error_depth > 0 {
-            Some(DiagnosticSeverity::ERROR)
-        } else if self.warning_depth > 0 {
-            Some(DiagnosticSeverity::WARNING)
-        } else if self.information_depth > 0 {
-            Some(DiagnosticSeverity::INFORMATION)
-        } else if self.hint_depth > 0 {
-            Some(DiagnosticSeverity::HINT)
-        } else {
-            None
-        }
-    }
-
-    fn current_code_is_unnecessary(&self) -> bool {
-        self.unnecessary_depth > 0
-    }
 }
 
 impl<'a> Iterator for BufferChunks<'a> {
@@ -5814,7 +5074,6 @@ impl<'a> Iterator for BufferChunks<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut next_capture_start = usize::MAX;
-        let mut next_diagnostic_endpoint = usize::MAX;
 
         if let Some(highlights) = self.highlights.as_mut() {
             while let Some((parent_capture_end, _)) = highlights.stack.last() {
@@ -5846,21 +5105,6 @@ impl<'a> Iterator for BufferChunks<'a> {
             }
         }
 
-        let mut diagnostic_endpoints = std::mem::take(&mut self.diagnostic_endpoints);
-        if let Some(diagnostic_endpoints) = diagnostic_endpoints.as_mut() {
-            while let Some(endpoint) = diagnostic_endpoints.peek().copied() {
-                if endpoint.offset <= self.range.start {
-                    self.update_diagnostic_depths(endpoint);
-                    diagnostic_endpoints.next();
-                    self.underline = endpoint.underline;
-                } else {
-                    next_diagnostic_endpoint = endpoint.offset;
-                    break;
-                }
-            }
-        }
-        self.diagnostic_endpoints = diagnostic_endpoints;
-
         if let Some(ChunkBitmaps {
             text: chunk,
             chars: chars_map,
@@ -5869,9 +5113,7 @@ impl<'a> Iterator for BufferChunks<'a> {
         }) = self.chunks.peek_with_bitmaps()
         {
             let chunk_start = self.range.start;
-            let mut chunk_end = (self.chunks.offset() + chunk.len())
-                .min(next_capture_start)
-                .min(next_diagnostic_endpoint);
+            let mut chunk_end = (self.chunks.offset() + chunk.len()).min(next_capture_start);
             let mut highlight_id = None;
             if let Some(highlights) = self.highlights.as_ref()
                 && let Some((parent_capture_end, parent_highlight_id)) = highlights.stack.last()
@@ -5897,9 +5139,6 @@ impl<'a> Iterator for BufferChunks<'a> {
             Some(Chunk {
                 text: slice,
                 syntax_highlight_id: highlight_id,
-                underline: self.underline,
-                diagnostic_severity: self.current_diagnostic_severity(),
-                is_unnecessary: self.current_code_is_unnecessary(),
                 tabs,
                 chars,
                 newlines,
@@ -5917,13 +5156,7 @@ impl operation_queue::Operation for Operation {
             Operation::Buffer(_) => {
                 unreachable!("buffer operations should never be deferred at this layer")
             }
-            Operation::UpdateDiagnostics {
-                lamport_timestamp, ..
-            }
-            | Operation::UpdateSelections {
-                lamport_timestamp, ..
-            }
-            | Operation::UpdateCompletionTriggers {
+            Operation::UpdateSelections {
                 lamport_timestamp, ..
             }
             | Operation::UpdateLineEnding {
@@ -6029,10 +5262,6 @@ impl File for TestFile {
         WorktreeId::from_usize(0)
     }
 
-    fn to_proto(&self, _: &App) -> rpc::proto::File {
-        unimplemented!()
-    }
-
     fn is_private(&self) -> bool {
         false
     }
@@ -6091,7 +5320,6 @@ pub(crate) fn contiguous_ranges(
 #[derive(Default, Debug)]
 pub struct CharClassifier {
     scope: Option<LanguageScope>,
-    scope_context: Option<CharScopeContext>,
     ignore_punctuation: bool,
 }
 
@@ -6099,15 +5327,7 @@ impl CharClassifier {
     pub fn new(scope: Option<LanguageScope>) -> Self {
         Self {
             scope,
-            scope_context: None,
             ignore_punctuation: false,
-        }
-    }
-
-    pub fn scope_context(self, scope_context: Option<CharScopeContext>) -> Self {
-        Self {
-            scope_context,
-            ..self
         }
     }
 
@@ -6135,17 +5355,11 @@ impl CharClassifier {
             return CharKind::Word;
         }
 
-        if let Some(scope) = &self.scope {
-            let characters = match self.scope_context {
-                Some(CharScopeContext::Completion) => scope.completion_query_characters(),
-                Some(CharScopeContext::LinkedEdit) => scope.linked_edit_characters(),
-                None => scope.word_characters(),
-            };
-            if let Some(characters) = characters
-                && characters.contains(&c)
-            {
-                return CharKind::Word;
-            }
+        if let Some(scope) = &self.scope
+            && let Some(characters) = scope.word_characters()
+            && characters.contains(&c)
+        {
+            return CharKind::Word;
         }
 
         if c.is_whitespace() {

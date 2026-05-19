@@ -1,8 +1,6 @@
 name = "Markdown"
 grammar = "markdown"
 path_suffixes = ["md", "mdx", "mdwn", "mdc", "markdown", "MD"]
-modeline_aliases = ["md"]
-completion_query_characters = ["-"]
 block_comment = { start = "<!--", prefix = "", end = "-->", tab_size = 1 }
 autoclose_before = ";:.,=}])>"
 brackets = [
@@ -33,4 +31,3 @@ decrease_indent_patterns = [
   { pattern = "^\\s*\\d",    valid_after = ["list_item"] },
   { pattern = "^\\s*",    valid_after = ["list_item"] },
 ]
-prettier_parser_name = "markdown"

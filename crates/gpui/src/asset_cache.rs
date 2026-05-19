@@ -1,4 +1,4 @@
-use crate::{App, SharedString, SharedUri};
+use crate::{App, SharedString};
 use futures::{Future, TryFutureExt};
 
 use std::fmt::Debug;
@@ -10,18 +10,10 @@ use std::sync::Arc;
 /// An enum representing
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Resource {
-    /// This resource is at a given URI
-    Uri(SharedUri),
     /// This resource is at a given path in the file system
     Path(Arc<Path>),
     /// This resource is embedded in the application binary
     Embedded(SharedString),
-}
-
-impl From<SharedUri> for Resource {
-    fn from(value: SharedUri) -> Self {
-        Self::Uri(value)
-    }
 }
 
 impl From<PathBuf> for Resource {

@@ -29,7 +29,6 @@ pub use entity_map::*;
 use gpui_util::{ResultExt, debug_panic};
 #[cfg(any(test, feature = "test-support"))]
 pub use headless_app_context::*;
-use http_client::{HttpClient, Url};
 use smallvec::SmallVec;
 #[cfg(any(test, feature = "test-support"))]
 pub use test_app::*;
@@ -144,11 +143,7 @@ pub struct Application(Rc<AppCell>);
 impl Application {
     /// Builds an app with a caller-provided platform implementation.
     pub fn with_platform(platform: Rc<dyn Platform>) -> Self {
-        Self(App::new_app(
-            platform,
-            Arc::new(()),
-            Arc::new(NullHttpClient),
-        ))
+        Self(App::new_app(platform, Arc::new(())))
     }
 
     /// Assigns the source of assets for the application.
@@ -157,14 +152,6 @@ impl Application {
         let asset_source = Arc::new(asset_source);
         context_lock.asset_source = asset_source.clone();
         context_lock.svg_renderer = SvgRenderer::new(asset_source);
-        drop(context_lock);
-        self
-    }
-
-    /// Sets the HTTP client for the application.
-    pub fn with_http_client(self, http_client: Arc<dyn HttpClient>) -> Self {
-        let mut context_lock = self.0.borrow_mut();
-        context_lock.http_client = http_client;
         drop(context_lock);
         self
     }
@@ -626,7 +613,6 @@ pub struct App {
     pub(crate) loading_assets: FxHashMap<(TypeId, u64), Box<dyn Any>>,
     asset_source: Arc<dyn AssetSource>,
     pub(crate) svg_renderer: SvgRenderer,
-    http_client: Arc<dyn HttpClient>,
 
     // below is plain data, the drop order is insignificant here
     pub(crate) pending_notifications: FxHashSet<EntityId>,
@@ -665,7 +651,6 @@ impl App {
     pub(crate) fn new_app(
         platform: Rc<dyn Platform>,
         asset_source: Arc<dyn AssetSource>,
-        http_client: Arc<dyn HttpClient>,
     ) -> Rc<AppCell> {
         let background_executor = platform.background_executor();
         let foreground_executor = platform.foreground_executor();
@@ -698,7 +683,6 @@ impl App {
                 svg_renderer: SvgRenderer::new(asset_source.clone()),
                 loading_assets: Default::default(),
                 asset_source,
-                http_client,
                 globals_by_type: FxHashMap::default(),
                 entities,
                 new_entity_observers: SubscriberSet::new(),
@@ -1347,16 +1331,6 @@ impl App {
     /// Sets the path to use when restarting the application.
     pub fn set_restart_path(&mut self, path: PathBuf) {
         self.restart_path = Some(path);
-    }
-
-    /// Returns the HTTP client for the application.
-    pub fn http_client(&self) -> Arc<dyn HttpClient> {
-        self.http_client.clone()
-    }
-
-    /// Sets the HTTP client for the application.
-    pub fn set_http_client(&mut self, new_client: Arc<dyn HttpClient>) {
-        self.http_client = new_client;
     }
 
     /// Configures when the application should automatically quit.
@@ -2642,31 +2616,6 @@ pub struct KeystrokeEvent {
 
     /// The context stack at the time
     pub context_stack: Vec<KeyContext>,
-}
-
-struct NullHttpClient;
-
-impl HttpClient for NullHttpClient {
-    fn send(
-        &self,
-        _req: http_client::Request<http_client::AsyncBody>,
-    ) -> futures::future::BoxFuture<
-        'static,
-        anyhow::Result<http_client::Response<http_client::AsyncBody>>,
-    > {
-        async move {
-            anyhow::bail!("No HttpClient available");
-        }
-        .boxed()
-    }
-
-    fn user_agent(&self) -> Option<&http_client::http::HeaderValue> {
-        None
-    }
-
-    fn proxy(&self) -> Option<&Url> {
-        None
-    }
 }
 
 /// A mutable reference to an entity owned by GPUI

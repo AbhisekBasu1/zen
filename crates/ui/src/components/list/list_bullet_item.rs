@@ -1,8 +1,7 @@
-use crate::{ButtonLink, ListItem, prelude::*};
-use component::{Component, ComponentScope, example_group, single_example};
+use crate::{ListItem, prelude::*};
 use gpui::{IntoElement, ParentElement, SharedString};
 
-#[derive(IntoElement, RegisterComponent)]
+#[derive(IntoElement)]
 pub struct ListBulletItem {
     label: SharedString,
     label_color: Option<Color>,
@@ -63,56 +62,5 @@ impl RenderOnce for ListBulletItem {
                     }),
             )
             .into_any_element()
-    }
-}
-
-impl Component for ListBulletItem {
-    fn scope() -> ComponentScope {
-        ComponentScope::DataDisplay
-    }
-
-    fn description() -> Option<&'static str> {
-        Some("A list item with a dash indicator for unordered lists.")
-    }
-
-    fn preview(_window: &mut Window, _cx: &mut App) -> Option<AnyElement> {
-        let basic_examples = vec![
-            single_example(
-                "Simple",
-                ListBulletItem::new("First bullet item").into_any_element(),
-            ),
-            single_example(
-                "Multiple Lines",
-                v_flex()
-                    .child(ListBulletItem::new("First item"))
-                    .child(ListBulletItem::new("Second item"))
-                    .child(ListBulletItem::new("Third item"))
-                    .into_any_element(),
-            ),
-            single_example(
-                "Long Text",
-                ListBulletItem::new(
-                    "A longer bullet item that demonstrates text wrapping behavior",
-                )
-                .into_any_element(),
-            ),
-            single_example(
-                "With Link",
-                ListBulletItem::new("")
-                    .child(Label::new("Open project documentation by"))
-                    .child(ButtonLink::new(
-                        "visiting the website",
-                        "https://example.dev",
-                    ))
-                    .into_any_element(),
-            ),
-        ];
-
-        Some(
-            v_flex()
-                .gap_6()
-                .child(example_group(basic_examples).vertical())
-                .into_any_element(),
-        )
     }
 }

@@ -3,26 +3,6 @@ use std::sync::Arc;
 
 pub use language::*;
 
-/// A shared grammar for plain text, exposed for reuse by downstream crates.
-#[cfg(feature = "tree-sitter-gitcommit")]
-pub static LANGUAGE_GIT_COMMIT: std::sync::LazyLock<Arc<Language>> =
-    std::sync::LazyLock::new(|| {
-        Arc::new(Language::new(
-            LanguageConfig {
-                name: "Git Commit".into(),
-                soft_wrap: Some(language::SoftWrap::EditorWidth),
-                matcher: LanguageMatcher {
-                    path_suffixes: vec!["COMMIT_EDITMSG".to_owned()],
-                    first_line_pattern: None,
-                    ..LanguageMatcher::default()
-                },
-                line_comments: vec![Arc::from("#")],
-                ..LanguageConfig::default()
-            },
-            Some(tree_sitter_gitcommit::LANGUAGE.into()),
-        ))
-    });
-
 pub fn init(languages: Arc<LanguageRegistry>, cx: &mut App) {
     #[cfg(feature = "load-grammars")]
     languages.register_native_grammars(grammars::native_grammars());
@@ -32,30 +12,7 @@ pub fn init(languages: Arc<LanguageRegistry>, cx: &mut App) {
     }
 }
 
-const BUILT_IN_LANGUAGES: &[&str] = &[
-    "bash",
-    "c",
-    "cpp",
-    "css",
-    "diff",
-    "go",
-    "gomod",
-    "gowork",
-    "json",
-    "jsonc",
-    "markdown",
-    "markdown-inline",
-    "python",
-    "rust",
-    "tsx",
-    "typescript",
-    "javascript",
-    "jsdoc",
-    "regex",
-    "yaml",
-    "gitcommit",
-    "zed-keybind-context",
-];
+const BUILT_IN_LANGUAGES: &[&str] = &["json", "jsonc", "markdown", "markdown-inline", "regex"];
 
 fn register_language(languages: &LanguageRegistry, name: &'static str, _cx: &mut App) {
     let config = load_config(name);
@@ -64,13 +21,10 @@ fn register_language(languages: &LanguageRegistry, name: &'static str, _cx: &mut
         config.grammar.clone(),
         config.matcher.clone(),
         config.hidden,
-        None,
         Arc::new(move || {
             Ok(LoadedLanguage {
                 config: config.clone(),
                 queries: grammars::load_queries(name),
-                toolchain_provider: None,
-                manifest_name: None,
             })
         }),
     );

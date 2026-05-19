@@ -11,22 +11,6 @@ impl<T> ReversibleIterable<T> {
 
 impl<It, Item> ReversibleIterable<It>
 where
-    It: Iterator<Item = Item>,
-{
-    pub(crate) fn find_single_ended<F>(mut self, pred: F) -> Option<Item>
-    where
-        F: FnMut(&Item) -> bool,
-    {
-        if self.reverse {
-            self.it.filter(pred).last()
-        } else {
-            self.it.find(pred)
-        }
-    }
-}
-
-impl<It, Item> ReversibleIterable<It>
-where
     It: DoubleEndedIterator<Item = Item>,
 {
     pub(crate) fn find<F>(mut self, mut pred: F) -> Option<Item>

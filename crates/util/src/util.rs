@@ -422,8 +422,8 @@ pub async fn load_login_shell_environment() -> Result<()> {
     Ok(())
 }
 
-/// Configures the process to start a new session, to prevent interactive shells from taking control
-/// of the terminal.
+/// Configures the process to start a new session, to prevent child processes from taking control
+/// of the parent session.
 ///
 /// For more details: <https://registerspill.thorstenball.com/p/how-to-lose-control-of-your-shell>
 pub fn set_pre_exec_to_start_new_session(

@@ -389,7 +389,7 @@ mod tests {
     fn build_wrapper() -> LineWrapper {
         let dispatcher = TestDispatcher::new(0);
         let cx = TestAppContext::build(dispatcher, None);
-        let id = cx.text_system().resolve_font(&font(".ZenMono"));
+        let id = cx.text_system().resolve_font(&font(".SystemMonoFont"));
         LineWrapper::new(id, px(16.), cx.text_system().clone())
     }
 

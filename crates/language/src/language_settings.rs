@@ -1,7 +1,7 @@
 //! Provides `language`-related settings.
 
-use crate::{Buffer, BufferSnapshot, File, LanguageName, LanguageServerName, ModelineSettings};
-use collections::{FxHashMap, HashMap, HashSet};
+use crate::{Buffer, BufferSnapshot, File, LanguageName};
+use collections::{FxHashMap, HashMap};
 use ec4rs::{
     Properties as EditorconfigProperties,
     property::{
@@ -10,13 +10,10 @@ use ec4rs::{
 };
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use gpui::{App, SharedString};
-use itertools::{Either, Itertools};
-use settings::SemanticTokens;
 
 pub use settings::{
-    AutoIndentMode, CompletionSettingsContent, FormatOnSave, Formatter, FormatterList,
-    LanguageSettingsContent, LineEndingSetting, LspInsertMode, RewrapBehavior,
-    ShowWhitespaceSetting, SoftWrap, WordsCompletionMode,
+    AutoIndentMode, LanguageSettingsContent, LineEndingSetting, RewrapBehavior,
+    ShowWhitespaceSetting, SoftWrap,
 };
 use settings::{RegisterSetting, Settings, SettingsLocation, SettingsStore, merge_from::MergeFrom};
 use std::{borrow::Cow, num::NonZeroU32, sync::Arc};
@@ -70,8 +67,6 @@ pub struct LanguageSettings {
     pub wrap_guides: Vec<usize>,
     /// Indent guide related settings.
     pub indent_guides: IndentGuideSettings,
-    /// Whether or not to perform a buffer format before saving.
-    pub format_on_save: FormatOnSave,
     /// Whether or not to remove any trailing whitespace from lines of a buffer
     /// before saving it.
     pub remove_trailing_whitespace_on_save: bool,
@@ -81,27 +76,7 @@ pub struct LanguageSettings {
     /// How line endings are initialized for new files and normalized during
     /// format and save.
     pub line_ending: LineEndingSetting,
-    /// How to perform a buffer format.
-    pub formatter: settings::FormatterList,
-    /// Zed's Prettier integration settings.
-    pub prettier: PrettierSettings,
-    /// Whether to automatically close JSX tags.
-    pub jsx_tag_auto_close: bool,
-    /// Whether to use language servers to provide code intelligence.
-    pub enable_language_server: bool,
-    /// The list of language servers to use (or disable) for this language.
-    ///
-    /// This array should consist of language server IDs, as well as the following
-    /// special tokens:
-    /// - `"!<language_server_id>"` - A language server ID prefixed with a `!` will be disabled.
-    /// - `"..."` - A placeholder to refer to the **rest** of the registered language servers for this language.
-    pub language_servers: Vec<String>,
-    /// Controls how semantic tokens from language servers are used for syntax highlighting.
-    pub semantic_tokens: SemanticTokens,
     /// Controls where the `editor::Rewrap` action is allowed for this language.
-    ///
-    /// Note: This setting has no effect in Vim mode, as rewrap is already
-    /// allowed everywhere.
     pub allow_rewrap: RewrapBehavior,
     /// Whether to show tabs and spaces in the editor.
     pub show_whitespaces: settings::ShowWhitespaceSetting,
@@ -117,27 +92,12 @@ pub struct LanguageSettings {
     pub use_autoclose: bool,
     /// Whether to automatically surround text with brackets.
     pub use_auto_surround: bool,
-    /// Whether to use additional LSP queries to format (and amend) the code after
-    /// every "trigger" symbol input, defined by LSP server capabilities.
-    pub use_on_type_format: bool,
     /// Controls automatic indentation behavior when typing.
     pub auto_indent: AutoIndentMode,
     /// Whether indentation of pasted content should be adjusted based on the context.
     pub auto_indent_on_paste: bool,
     /// Controls how the editor handles the autoclosed characters.
     pub always_treat_brackets_as_autoclosed: bool,
-    /// Which code actions to run on save
-    pub code_actions_on_format: HashMap<String, bool>,
-    /// Whether to perform linked edits
-    pub linked_edits: bool,
-    /// Whether to pop the completions menu while typing in an editor without
-    /// explicitly requesting it.
-    pub show_completions_on_input: bool,
-    /// Whether to display inline and alongside documentation for items in the
-    /// completions menu.
-    pub show_completion_documentation: bool,
-    /// Completion settings for this language.
-    pub completions: CompletionSettings,
     /// Whether to enable word diff highlighting in the editor.
     ///
     /// When enabled, changed words within modified lines are highlighted
@@ -147,33 +107,6 @@ pub struct LanguageSettings {
     pub word_diff_enabled: bool,
     /// Whether to use tree-sitter bracket queries to detect and colorize the brackets in the editor.
     pub colorize_brackets: bool,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct CompletionSettings {
-    /// Controls how words are completed.
-    /// For large documents, not all words may be fetched for completion.
-    ///
-    /// Default: `fallback`
-    pub words: WordsCompletionMode,
-    /// How many characters has to be in the completions query to automatically show the words-based completions.
-    /// Before that value, it's still possible to trigger the words-based completion manually with the corresponding editor command.
-    ///
-    /// Default: 3
-    pub words_min_length: usize,
-    /// Whether to fetch LSP completions or not.
-    ///
-    /// Default: true
-    pub lsp: bool,
-    /// When fetching LSP completions, determines how long to wait for a response of a particular server.
-    /// When set to 0, waits indefinitely.
-    ///
-    /// Default: 0
-    pub lsp_fetch_timeout_ms: u64,
-    /// Controls how LSP completions are inserted.
-    ///
-    /// Default: "replace_suffix"
-    pub lsp_insert_mode: LspInsertMode,
 }
 
 /// The settings for indent guides.
@@ -217,30 +150,7 @@ impl IndentGuideSettings {
     }
 }
 
-/// Allows to enable/disable formatting with Prettier
-/// and configure default Prettier, used when no project-level Prettier installation is found.
-/// Prettier formatting is disabled by default.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PrettierSettings {
-    /// Enables or disables formatting with Prettier for a given language.
-    pub allowed: bool,
-
-    /// Forces Prettier integration to use a specific parser name when formatting files with the language.
-    pub parser: Option<String>,
-
-    /// Forces Prettier integration to use specific plugins when formatting files with the language.
-    /// The default Prettier will be installed with these plugins.
-    pub plugins: HashSet<String>,
-
-    /// Default Prettier options, in the format as in package.json section for Prettier.
-    /// If project installs Prettier via its package.json, these options will be ignored.
-    pub options: HashMap<String, serde_json::Value>,
-}
-
 impl LanguageSettings {
-    /// A token representing the rest of the available language servers.
-    const REST_OF_LANGUAGE_SERVERS: &'static str = "...";
-
     pub fn for_buffer<'a>(buffer: &'a Buffer, cx: &'a App) -> Cow<'a, LanguageSettings> {
         Self::resolve(Some(buffer), None, cx)
     }
@@ -270,17 +180,11 @@ impl LanguageSettings {
             buffer.language()
         };
 
-        let mut settings = AllLanguageSettings::get(location, cx).language(
+        AllLanguageSettings::get(location, cx).language(
             location,
             language.map(|l| l.name()).as_ref(),
             cx,
-        );
-
-        if let Some(modeline) = buffer.modeline() {
-            merge_with_modeline(settings.to_mut(), modeline);
-        }
-
-        settings
+        )
     }
 
     pub fn resolve<'a>(
@@ -296,61 +200,11 @@ impl LanguageSettings {
             path: f.path().as_ref(),
         });
         let all = AllLanguageSettings::get(location, cx);
-        let mut settings = if override_language.is_none() {
+        if override_language.is_none() {
             all.language(location, buffer.language().map(|l| l.name()).as_ref(), cx)
         } else {
             all.language(location, override_language, cx)
-        };
-
-        if let Some(modeline) = buffer.modeline() {
-            merge_with_modeline(settings.to_mut(), modeline);
         }
-
-        settings
-    }
-
-    /// Returns the customized list of language servers from the list of
-    /// available language servers.
-    pub fn customized_language_servers(
-        &self,
-        available_language_servers: &[LanguageServerName],
-    ) -> Vec<LanguageServerName> {
-        Self::resolve_language_servers(&self.language_servers, available_language_servers)
-    }
-
-    pub(crate) fn resolve_language_servers(
-        configured_language_servers: &[String],
-        available_language_servers: &[LanguageServerName],
-    ) -> Vec<LanguageServerName> {
-        let (disabled_language_servers, enabled_language_servers): (
-            Vec<LanguageServerName>,
-            Vec<LanguageServerName>,
-        ) = configured_language_servers.iter().partition_map(
-            |language_server| match language_server.strip_prefix('!') {
-                Some(disabled) => Either::Left(LanguageServerName(disabled.to_string().into())),
-                None => Either::Right(LanguageServerName(language_server.clone().into())),
-            },
-        );
-
-        let rest = available_language_servers
-            .iter()
-            .filter(|&available_language_server| {
-                !disabled_language_servers.contains(available_language_server)
-                    && !enabled_language_servers.contains(available_language_server)
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-
-        enabled_language_servers
-            .into_iter()
-            .flat_map(|language_server| {
-                if language_server.0.as_ref() == Self::REST_OF_LANGUAGE_SERVERS {
-                    rest.clone()
-                } else {
-                    vec![language_server]
-                }
-            })
-            .collect::<Vec<_>>()
     }
 }
 
@@ -380,42 +234,6 @@ impl AllLanguageSettings {
             Cow::Borrowed(settings)
         }
     }
-}
-
-fn merge_with_modeline(settings: &mut LanguageSettings, modeline: &ModelineSettings) {
-    let show_whitespaces = modeline.show_trailing_whitespace.and_then(|v| {
-        if v {
-            Some(ShowWhitespaceSetting::Trailing)
-        } else {
-            None
-        }
-    });
-
-    settings
-        .tab_size
-        .merge_from_option(modeline.tab_size.as_ref());
-    settings
-        .hard_tabs
-        .merge_from_option(modeline.hard_tabs.as_ref());
-    settings
-        .preferred_line_length
-        .merge_from_option(modeline.preferred_line_length.map(u32::from).as_ref());
-    let auto_indent_mode = modeline.auto_indent.map(|enabled| {
-        if enabled {
-            AutoIndentMode::SyntaxAware
-        } else {
-            AutoIndentMode::None
-        }
-    });
-    settings
-        .auto_indent
-        .merge_from_option(auto_indent_mode.as_ref());
-    settings
-        .show_whitespaces
-        .merge_from_option(show_whitespaces.as_ref());
-    settings
-        .ensure_final_newline_on_save
-        .merge_from_option(modeline.ensure_final_newline.as_ref());
 }
 
 fn merge_with_editorconfig(settings: &mut LanguageSettings, cfg: &EditorconfigProperties) {
@@ -470,8 +288,6 @@ impl settings::Settings for AllLanguageSettings {
         let all_languages = &content.project.all_languages;
 
         fn load_from_content(settings: LanguageSettingsContent) -> LanguageSettings {
-            let completions = settings.completions.unwrap();
-            let prettier = settings.prettier.unwrap();
             let indent_guides = settings.indent_guides.unwrap();
             let whitespace_map = settings.whitespace_map.unwrap();
 
@@ -489,23 +305,11 @@ impl settings::Settings for AllLanguageSettings {
                     coloring: indent_guides.coloring.unwrap(),
                     background_coloring: indent_guides.background_coloring.unwrap(),
                 },
-                format_on_save: settings.format_on_save.unwrap(),
                 remove_trailing_whitespace_on_save: settings
                     .remove_trailing_whitespace_on_save
                     .unwrap(),
                 ensure_final_newline_on_save: settings.ensure_final_newline_on_save.unwrap(),
                 line_ending: settings.line_ending.unwrap(),
-                formatter: settings.formatter.unwrap(),
-                prettier: PrettierSettings {
-                    allowed: prettier.allowed.unwrap(),
-                    parser: prettier.parser.filter(|parser| !parser.is_empty()),
-                    plugins: prettier.plugins.unwrap_or_default(),
-                    options: prettier.options.unwrap_or_default(),
-                },
-                jsx_tag_auto_close: settings.jsx_tag_auto_close.unwrap().enabled.unwrap(),
-                enable_language_server: settings.enable_language_server.unwrap(),
-                language_servers: settings.language_servers.unwrap(),
-                semantic_tokens: settings.semantic_tokens.unwrap(),
                 allow_rewrap: settings.allow_rewrap.unwrap(),
                 show_whitespaces: settings.show_whitespaces.unwrap(),
                 whitespace_map: WhitespaceMap {
@@ -517,24 +321,12 @@ impl settings::Settings for AllLanguageSettings {
                 indent_list_on_tab: settings.indent_list_on_tab.unwrap(),
                 use_autoclose: settings.use_autoclose.unwrap(),
                 use_auto_surround: settings.use_auto_surround.unwrap(),
-                use_on_type_format: settings.use_on_type_format.unwrap(),
                 auto_indent: settings.auto_indent.unwrap(),
                 auto_indent_on_paste: settings.auto_indent_on_paste.unwrap(),
                 always_treat_brackets_as_autoclosed: settings
                     .always_treat_brackets_as_autoclosed
                     .unwrap(),
-                code_actions_on_format: settings.code_actions_on_format.unwrap(),
-                linked_edits: settings.linked_edits.unwrap(),
-                show_completions_on_input: settings.show_completions_on_input.unwrap(),
-                show_completion_documentation: settings.show_completion_documentation.unwrap(),
                 colorize_brackets: settings.colorize_brackets.unwrap(),
-                completions: CompletionSettings {
-                    words: completions.words.unwrap(),
-                    words_min_length: completions.words_min_length.unwrap() as usize,
-                    lsp: completions.lsp.unwrap(),
-                    lsp_fetch_timeout_ms: completions.lsp_fetch_timeout_ms.unwrap(),
-                    lsp_insert_mode: completions.lsp_insert_mode.unwrap(),
-                },
                 word_diff_enabled: settings.word_diff_enabled.unwrap(),
             }
         }
@@ -571,97 +363,5 @@ impl settings::Settings for AllLanguageSettings {
             languages,
             file_types,
         }
-    }
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct JsxTagAutoCloseSettings {
-    /// Enables or disables auto-closing of JSX tags.
-    pub enabled: bool,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use gpui::TestAppContext;
-
-    #[test]
-    fn test_resolve_language_servers() {
-        fn language_server_names(names: &[&str]) -> Vec<LanguageServerName> {
-            names
-                .iter()
-                .copied()
-                .map(|name| LanguageServerName(name.to_string().into()))
-                .collect::<Vec<_>>()
-        }
-
-        let available_language_servers = language_server_names(&[
-            "typescript-language-server",
-            "biome",
-            "deno",
-            "eslint",
-            "tailwind",
-        ]);
-
-        // A value of just `["..."]` is the same as taking all of the available language servers.
-        assert_eq!(
-            LanguageSettings::resolve_language_servers(
-                &[LanguageSettings::REST_OF_LANGUAGE_SERVERS.into()],
-                &available_language_servers,
-            ),
-            available_language_servers
-        );
-
-        // Referencing one of the available language servers will change its order.
-        assert_eq!(
-            LanguageSettings::resolve_language_servers(
-                &[
-                    "biome".into(),
-                    LanguageSettings::REST_OF_LANGUAGE_SERVERS.into(),
-                    "deno".into()
-                ],
-                &available_language_servers
-            ),
-            language_server_names(&[
-                "biome",
-                "typescript-language-server",
-                "eslint",
-                "tailwind",
-                "deno",
-            ])
-        );
-
-        // Negating an available language server removes it from the list.
-        assert_eq!(
-            LanguageSettings::resolve_language_servers(
-                &[
-                    "deno".into(),
-                    "!typescript-language-server".into(),
-                    "!biome".into(),
-                    LanguageSettings::REST_OF_LANGUAGE_SERVERS.into()
-                ],
-                &available_language_servers
-            ),
-            language_server_names(&["deno", "eslint", "tailwind"])
-        );
-
-        // Adding a language server not in the list of available language servers adds it to the list.
-        assert_eq!(
-            LanguageSettings::resolve_language_servers(
-                &[
-                    "my-cool-language-server".into(),
-                    LanguageSettings::REST_OF_LANGUAGE_SERVERS.into()
-                ],
-                &available_language_servers
-            ),
-            language_server_names(&[
-                "my-cool-language-server",
-                "typescript-language-server",
-                "biome",
-                "deno",
-                "eslint",
-                "tailwind",
-            ])
-        );
     }
 }

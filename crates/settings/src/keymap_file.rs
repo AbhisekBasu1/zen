@@ -1329,7 +1329,6 @@ impl<'a> KeybindUpdateTarget<'a> {
 #[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum KeybindSource {
     User,
-    Vim,
     Base,
     #[default]
     Default,
@@ -1339,7 +1338,6 @@ pub enum KeybindSource {
 impl KeybindSource {
     const BASE: KeyBindingMetaIndex = KeyBindingMetaIndex(KeybindSource::Base as u32);
     const DEFAULT: KeyBindingMetaIndex = KeyBindingMetaIndex(KeybindSource::Default as u32);
-    const VIM: KeyBindingMetaIndex = KeyBindingMetaIndex(KeybindSource::Vim as u32);
     const USER: KeyBindingMetaIndex = KeyBindingMetaIndex(KeybindSource::User as u32);
 
     pub fn name(&self) -> &'static str {
@@ -1347,7 +1345,6 @@ impl KeybindSource {
             KeybindSource::User => "User",
             KeybindSource::Default => "Default",
             KeybindSource::Base => "Base",
-            KeybindSource::Vim => "Vim",
             KeybindSource::Unknown => "Unknown",
         }
     }
@@ -1357,7 +1354,6 @@ impl KeybindSource {
             KeybindSource::User => Self::USER,
             KeybindSource::Default => Self::DEFAULT,
             KeybindSource::Base => Self::BASE,
-            KeybindSource::Vim => Self::VIM,
             KeybindSource::Unknown => KeyBindingMetaIndex(*self as u32),
         }
     }
@@ -1367,7 +1363,6 @@ impl KeybindSource {
             Self::USER => KeybindSource::User,
             Self::BASE => KeybindSource::Base,
             Self::DEFAULT => KeybindSource::Default,
-            Self::VIM => KeybindSource::Vim,
             _ => KeybindSource::Unknown,
         }
     }

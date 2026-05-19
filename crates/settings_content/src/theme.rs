@@ -146,10 +146,8 @@ pub struct ThemeSettingsContent {
     #[schemars(default = "default_font_features")]
     pub buffer_font_features: Option<FontFeaturesContent>,
     /// The name of a font to use for rendering in the markdown preview.
-    /// Falls back to the UI font if unset.
     pub markdown_preview_font_family: Option<FontFamilyName>,
     /// The theme to use for the markdown preview.
-    /// Falls back to the main editor theme if unset.
     pub markdown_preview_theme: Option<ThemeSelection>,
     /// The name of the Zed theme to use.
     pub theme: Option<ThemeSelection>,
@@ -825,122 +823,6 @@ pub struct ThemeColorsContent {
     #[serde(rename = "editor.document_highlight.bracket_background")]
     pub editor_document_highlight_bracket_background: Option<String>,
 
-    /// Terminal background color.
-    #[serde(rename = "terminal.background")]
-    pub terminal_background: Option<String>,
-
-    /// Terminal foreground color.
-    #[serde(rename = "terminal.foreground")]
-    pub terminal_foreground: Option<String>,
-
-    /// Terminal ANSI background color.
-    #[serde(rename = "terminal.ansi.background")]
-    pub terminal_ansi_background: Option<String>,
-
-    /// Bright terminal foreground color.
-    #[serde(rename = "terminal.bright_foreground")]
-    pub terminal_bright_foreground: Option<String>,
-
-    /// Dim terminal foreground color.
-    #[serde(rename = "terminal.dim_foreground")]
-    pub terminal_dim_foreground: Option<String>,
-
-    /// Black ANSI terminal color.
-    #[serde(rename = "terminal.ansi.black")]
-    pub terminal_ansi_black: Option<String>,
-
-    /// Bright black ANSI terminal color.
-    #[serde(rename = "terminal.ansi.bright_black")]
-    pub terminal_ansi_bright_black: Option<String>,
-
-    /// Dim black ANSI terminal color.
-    #[serde(rename = "terminal.ansi.dim_black")]
-    pub terminal_ansi_dim_black: Option<String>,
-
-    /// Red ANSI terminal color.
-    #[serde(rename = "terminal.ansi.red")]
-    pub terminal_ansi_red: Option<String>,
-
-    /// Bright red ANSI terminal color.
-    #[serde(rename = "terminal.ansi.bright_red")]
-    pub terminal_ansi_bright_red: Option<String>,
-
-    /// Dim red ANSI terminal color.
-    #[serde(rename = "terminal.ansi.dim_red")]
-    pub terminal_ansi_dim_red: Option<String>,
-
-    /// Green ANSI terminal color.
-    #[serde(rename = "terminal.ansi.green")]
-    pub terminal_ansi_green: Option<String>,
-
-    /// Bright green ANSI terminal color.
-    #[serde(rename = "terminal.ansi.bright_green")]
-    pub terminal_ansi_bright_green: Option<String>,
-
-    /// Dim green ANSI terminal color.
-    #[serde(rename = "terminal.ansi.dim_green")]
-    pub terminal_ansi_dim_green: Option<String>,
-
-    /// Yellow ANSI terminal color.
-    #[serde(rename = "terminal.ansi.yellow")]
-    pub terminal_ansi_yellow: Option<String>,
-
-    /// Bright yellow ANSI terminal color.
-    #[serde(rename = "terminal.ansi.bright_yellow")]
-    pub terminal_ansi_bright_yellow: Option<String>,
-
-    /// Dim yellow ANSI terminal color.
-    #[serde(rename = "terminal.ansi.dim_yellow")]
-    pub terminal_ansi_dim_yellow: Option<String>,
-
-    /// Blue ANSI terminal color.
-    #[serde(rename = "terminal.ansi.blue")]
-    pub terminal_ansi_blue: Option<String>,
-
-    /// Bright blue ANSI terminal color.
-    #[serde(rename = "terminal.ansi.bright_blue")]
-    pub terminal_ansi_bright_blue: Option<String>,
-
-    /// Dim blue ANSI terminal color.
-    #[serde(rename = "terminal.ansi.dim_blue")]
-    pub terminal_ansi_dim_blue: Option<String>,
-
-    /// Magenta ANSI terminal color.
-    #[serde(rename = "terminal.ansi.magenta")]
-    pub terminal_ansi_magenta: Option<String>,
-
-    /// Bright magenta ANSI terminal color.
-    #[serde(rename = "terminal.ansi.bright_magenta")]
-    pub terminal_ansi_bright_magenta: Option<String>,
-
-    /// Dim magenta ANSI terminal color.
-    #[serde(rename = "terminal.ansi.dim_magenta")]
-    pub terminal_ansi_dim_magenta: Option<String>,
-
-    /// Cyan ANSI terminal color.
-    #[serde(rename = "terminal.ansi.cyan")]
-    pub terminal_ansi_cyan: Option<String>,
-
-    /// Bright cyan ANSI terminal color.
-    #[serde(rename = "terminal.ansi.bright_cyan")]
-    pub terminal_ansi_bright_cyan: Option<String>,
-
-    /// Dim cyan ANSI terminal color.
-    #[serde(rename = "terminal.ansi.dim_cyan")]
-    pub terminal_ansi_dim_cyan: Option<String>,
-
-    /// White ANSI terminal color.
-    #[serde(rename = "terminal.ansi.white")]
-    pub terminal_ansi_white: Option<String>,
-
-    /// Bright white ANSI terminal color.
-    #[serde(rename = "terminal.ansi.bright_white")]
-    pub terminal_ansi_bright_white: Option<String>,
-
-    /// Dim white ANSI terminal color.
-    #[serde(rename = "terminal.ansi.dim_white")]
-    pub terminal_ansi_dim_white: Option<String>,
-
     #[serde(rename = "link_text.hover")]
     pub link_text_hover: Option<String>,
 
@@ -991,61 +873,6 @@ pub struct ThemeColorsContent {
     /// Deprecated in favor of `version_control_conflict_marker_theirs`.
     #[deprecated]
     pub version_control_conflict_theirs_background: Option<String>,
-
-    /// Background color for Vim Normal mode indicator.
-    #[serde(rename = "vim.normal.background")]
-    pub vim_normal_background: Option<String>,
-    /// Background color for Vim Insert mode indicator.
-    #[serde(rename = "vim.insert.background")]
-    pub vim_insert_background: Option<String>,
-    /// Background color for Vim Replace mode indicator.
-    #[serde(rename = "vim.replace.background")]
-    pub vim_replace_background: Option<String>,
-    /// Background color for Vim Visual mode indicator.
-    #[serde(rename = "vim.visual.background")]
-    pub vim_visual_background: Option<String>,
-    /// Background color for Vim Visual Line mode indicator.
-    #[serde(rename = "vim.visual_line.background")]
-    pub vim_visual_line_background: Option<String>,
-    /// Background color for Vim Visual Block mode indicator.
-    #[serde(rename = "vim.visual_block.background")]
-    pub vim_visual_block_background: Option<String>,
-    /// Background color for Vim yank highlight.
-    #[serde(rename = "vim.yank.background")]
-    pub vim_yank_background: Option<String>,
-    /// Foreground color for Helix jump labels.
-    #[serde(rename = "vim.helix_jump_label.foreground")]
-    pub vim_helix_jump_label_foreground: Option<String>,
-    /// Background color for Vim Helix Normal mode indicator.
-    #[serde(rename = "vim.helix_normal.background")]
-    pub vim_helix_normal_background: Option<String>,
-    /// Background color for Vim Helix Select mode indicator.
-    #[serde(rename = "vim.helix_select.background")]
-    pub vim_helix_select_background: Option<String>,
-    /// Background color for Vim Normal mode indicator.
-    #[serde(rename = "vim.normal.foreground")]
-    pub vim_normal_foreground: Option<String>,
-    /// Foreground color for Vim Insert mode indicator.
-    #[serde(rename = "vim.insert.foreground")]
-    pub vim_insert_foreground: Option<String>,
-    /// Foreground color for Vim Replace mode indicator.
-    #[serde(rename = "vim.replace.foreground")]
-    pub vim_replace_foreground: Option<String>,
-    /// Foreground color for Vim Visual mode indicator.
-    #[serde(rename = "vim.visual.foreground")]
-    pub vim_visual_foreground: Option<String>,
-    /// Foreground color for Vim Visual Line mode indicator.
-    #[serde(rename = "vim.visual_line.foreground")]
-    pub vim_visual_line_foreground: Option<String>,
-    /// Foreground color for Vim Visual Block mode indicator.
-    #[serde(rename = "vim.visual_block.foreground")]
-    pub vim_visual_block_foreground: Option<String>,
-    /// Foreground color for Vim Helix Normal mode indicator.
-    #[serde(rename = "vim.helix_normal.foreground")]
-    pub vim_helix_normal_foreground: Option<String>,
-    /// Foreground color for Vim Helix Select mode indicator.
-    #[serde(rename = "vim.helix_select.foreground")]
-    pub vim_helix_select_foreground: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq)]
@@ -1125,7 +952,7 @@ pub struct StatusColorsContent {
     #[serde(rename = "deleted.border")]
     pub deleted_border: Option<String>,
 
-    /// Indicates a system error, a failed operation or a diagnostic error.
+    /// Indicates a system error or a failed operation.
     #[serde(rename = "error")]
     pub error: Option<String>,
 

@@ -119,12 +119,10 @@ impl SvgRenderer {
 
         let default_font_resolver = usvg::FontResolver::default_font_selector();
         let font_resolver = Box::new({
-            let asset_source = asset_source.clone();
             move |font: &usvg::Font, db: &mut Arc<usvg::fontdb::Database>| {
                 if db.is_empty() {
                     let fontdb = enriched_fontdb.get_or_init(|| {
                         let mut db = (**SYSTEM_FONT_DB).clone();
-                        load_bundled_fonts(&*asset_source, &mut db);
                         fix_generic_font_families(&mut db);
                         Arc::new(db)
                     });
@@ -250,47 +248,41 @@ impl SvgRenderer {
     }
 }
 
-fn load_bundled_fonts(asset_source: &dyn AssetSource, db: &mut usvg::fontdb::Database) {
-    let font_paths = [
-        "fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf",
-        "fonts/lilex/Lilex-Regular.ttf",
-    ];
-    for path in font_paths {
-        match asset_source.load(path) {
-            Ok(Some(data)) => db.load_font_data(data.into_owned()),
-            Ok(None) => log::warn!("Bundled font not found: {path}"),
-            Err(error) => log::warn!("Failed to load bundled font {path}: {error}"),
-        }
-    }
-}
-
 // fontdb defaults generic families to Microsoft fonts ("Arial", "Times New Roman")
 // which aren't installed on most Linux systems. fontconfig normally overrides these,
 // but when it fails the defaults remain and all generic family queries return None.
 fn fix_generic_font_families(db: &mut usvg::fontdb::Database) {
     use usvg::fontdb::{Family, Query};
 
-    let families_and_fallbacks: &[(Family<'_>, &str)] = &[
-        (Family::SansSerif, "IBM Plex Sans"),
-        // No serif font bundled; use sans-serif as best available fallback.
-        (Family::Serif, "IBM Plex Sans"),
-        (Family::Monospace, "Lilex"),
-        (Family::Cursive, "IBM Plex Sans"),
-        (Family::Fantasy, "IBM Plex Sans"),
+    let Some(fallback_name) = db
+        .faces()
+        .next()
+        .and_then(|face| face.families.first())
+        .map(|(name, _)| name.clone())
+    else {
+        return;
+    };
+
+    let families = [
+        Family::SansSerif,
+        Family::Serif,
+        Family::Monospace,
+        Family::Cursive,
+        Family::Fantasy,
     ];
 
-    for (family, fallback_name) in families_and_fallbacks {
+    for family in families {
         let query = Query {
-            families: &[*family],
+            families: &[family],
             ..Default::default()
         };
         if db.query(&query).is_none() {
             match family {
-                Family::SansSerif => db.set_sans_serif_family(*fallback_name),
-                Family::Serif => db.set_serif_family(*fallback_name),
-                Family::Monospace => db.set_monospace_family(*fallback_name),
-                Family::Cursive => db.set_cursive_family(*fallback_name),
-                Family::Fantasy => db.set_fantasy_family(*fallback_name),
+                Family::SansSerif => db.set_sans_serif_family(fallback_name.clone()),
+                Family::Serif => db.set_serif_family(fallback_name.clone()),
+                Family::Monospace => db.set_monospace_family(fallback_name.clone()),
+                Family::Cursive => db.set_cursive_family(fallback_name.clone()),
+                Family::Fantasy => db.set_fantasy_family(fallback_name.clone()),
                 _ => {}
             }
         }
@@ -300,18 +292,6 @@ fn fix_generic_font_families(db: &mut usvg::fontdb::Database) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use usvg::fontdb::{Database, Family, Query};
-
-    const IBM_PLEX_REGULAR: &[u8] =
-        include_bytes!("../../../assets/fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf");
-    const LILEX_REGULAR: &[u8] = include_bytes!("../../../assets/fonts/lilex/Lilex-Regular.ttf");
-
-    fn db_with_bundled_fonts() -> Database {
-        let mut db = Database::new();
-        db.load_font_data(IBM_PLEX_REGULAR.to_vec());
-        db.load_font_data(LILEX_REGULAR.to_vec());
-        db
-    }
 
     #[test]
     fn test_is_emoji_presentation() {
@@ -342,75 +322,5 @@ mod tests {
                 s
             );
         }
-    }
-
-    #[test]
-    fn fix_generic_font_families_sets_all_families() {
-        let mut db = db_with_bundled_fonts();
-        fix_generic_font_families(&mut db);
-
-        let families = [
-            Family::SansSerif,
-            Family::Serif,
-            Family::Monospace,
-            Family::Cursive,
-            Family::Fantasy,
-        ];
-
-        for family in families {
-            let query = Query {
-                families: &[family],
-                ..Default::default()
-            };
-            assert!(
-                db.query(&query).is_some(),
-                "Expected generic family {family:?} to resolve after fix_generic_font_families"
-            );
-        }
-    }
-
-    #[test]
-    fn test_select_emoji_font_skips_family_without_glyph() {
-        let mut db = db_with_bundled_fonts();
-
-        let ibm_plex_sans = db
-            .query(&usvg::fontdb::Query {
-                families: &[usvg::fontdb::Family::Name("IBM Plex Sans")],
-                weight: usvg::fontdb::Weight(400),
-                stretch: usvg::fontdb::Stretch::Normal,
-                style: usvg::fontdb::Style::Normal,
-            })
-            .unwrap();
-        let lilex = db
-            .query(&usvg::fontdb::Query {
-                families: &[usvg::fontdb::Family::Name("Lilex")],
-                weight: usvg::fontdb::Weight(400),
-                stretch: usvg::fontdb::Stretch::Normal,
-                style: usvg::fontdb::Style::Normal,
-            })
-            .unwrap();
-        let selected = select_emoji_font('│', &[], &db, &["IBM Plex Sans", "Lilex"]).unwrap();
-
-        assert_eq!(selected, lilex);
-        assert!(!font_has_char(&db, ibm_plex_sans, '│'));
-        assert!(font_has_char(&db, selected, '│'));
-    }
-
-    #[test]
-    fn fix_generic_font_families_monospace_resolves_to_lilex() {
-        let mut db = db_with_bundled_fonts();
-        fix_generic_font_families(&mut db);
-
-        let query = Query {
-            families: &[Family::Monospace],
-            ..Default::default()
-        };
-        let id = db.query(&query).expect("Monospace should resolve");
-        let face = db.face(id).expect("Face should exist");
-        assert!(
-            face.families.iter().any(|(name, _)| name.contains("Lilex")),
-            "Monospace should map to Lilex, got {:?}",
-            face.families
-        );
     }
 }
