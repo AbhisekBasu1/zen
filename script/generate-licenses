@@ -15,11 +15,33 @@ fail_on_stderr() {
     return $rc
 }
 
+append_theme_licenses() {
+    if [ -f assets/themes/LICENSES ]; then
+        cat assets/themes/LICENSES
+        return
+    fi
+
+    if [ ! -d assets/themes ]; then
+        return
+    fi
+
+    find assets/themes \
+        -type f \( -name LICENSE -o -name LICENSE.txt -o -name OFL.txt \) \
+        -print |
+        sort |
+        while IFS= read -r license_file; do
+            echo "## $(basename "$(dirname "$license_file")")"
+            echo
+            cat "$license_file"
+            echo
+        done
+}
+
 echo -n "" >"$OUTPUT_FILE"
 
 {
     echo -e "# ###### THEME LICENSES ######\n"
-    cat assets/themes/LICENSES
+    append_theme_licenses
 
     echo -e "\n# ###### ICON LICENSES ######\n"
     cat assets/icons/LICENSES
