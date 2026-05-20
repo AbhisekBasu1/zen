@@ -10,6 +10,10 @@ Zen began as a fork of Zed. The name is intentional: keep the speed and editor c
 
 The public product name, Cargo package, app bundle, URL scheme, and executable are now Zen. Zen is independently maintained and is not affiliated with Zed Industries.
 
+## Benchmark snapshot
+
+Zen keeps the core editing experience while cutting away a large amount of surrounding surface area. In local benchmarks, that translated to roughly 2.2x lower idle RSS, a 6.8x smaller debug binary, and a 3.9x faster cold Rust check compared with the original Zed baseline before the fork.
+
 ## Product thesis
 
 Markdown is no longer just documentation. In AI-era software work, Markdown is also operational context:
